@@ -11,7 +11,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 @dp.message(F.text.startswith('/start'))
 async def start(message: Message):
-    insert_user(message.from_user.id, message.from_user.full_name)
+    await insert_user(message.from_user.id, message.from_user.full_name)
     await message.answer("Привет! Я Goooo — помогу с планами тренировок и питания.")
 
 async def main():
