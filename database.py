@@ -9,7 +9,7 @@ headers = {
 }
 
 # Добавление пользователя в таблицу `users`, если его ещё нет
-async def insert_user(telegram_id: int, name: str):
+async def insert_user(telegram_id: int, tg_name: str):
     # 1. Проверка, существует ли пользователь
     params = {
         "select": "id",
@@ -31,7 +31,7 @@ async def insert_user(telegram_id: int, name: str):
         # 2. Если нет — добавляем
         data = {
             "telegram_id": str(telegram_id),
-            "name": name
+            "tg_name": tg_name
         }
 
         insert_response = await client.post(
@@ -60,3 +60,19 @@ async def get_user_id_by_telegram_id(telegram_id: int) -> str | None:
         if users:
             return users[0]["id"]
         return None
+
+# Добавление user_profile (после онбординга)
+async def insert_user_profile(user_id: str, name: str):
+    data = {
+        "user_id": user_id,
+        "name": name
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{SUPABASE_URL}/rest/v1/user_profile",
+            headers=headers,
+            json=data
+        )
+        response.raise_for_status()
+        return response.json()
