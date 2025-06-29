@@ -1,43 +1,30 @@
 import logging
 from typing import Optional
 
-# Импортируем из официальной библиотеки supabase
-from supabase.lib.client_async import create_async_client, AsyncClient
+# --- ШАГ 1: Правильный импорт ---
+# Импортируем только create_client и AsyncClient из корневого пакета supabase
+from supabase import create_client, AsyncClient
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Правильный способ создания асинхронного клиента ---
-# Мы не можем создать клиент на верхнем уровне модуля, т.к. его создание - асинхронная операция.
-# Поэтому мы будем создавать его один раз при первом вызове и переиспользовать.
-_supabase_client: Optional[AsyncClient] = None
+# --- ШАГ 2: Правильное создание клиента ---
+# Функция create_client является СИНХРОННОЙ. Она возвращает объект клиента,
+# методы которого уже можно вызывать асинхронно через await.
+# Поэтому мы можем создать клиент один раз на уровне модуля.
 
-async def get_supabase_client() -> AsyncClient:
-    """
-    Асинхронно инициализирует и возвращает клиент Supabase.
-    Использует "ленивую" инициализацию, чтобы клиент создавался только один раз.
-    """
-    global _supabase_client
-    if _supabase_client is None:
-        logging.info("Initializing Supabase client for the first time...")
-        
-        # --- ШАГ ДИАГНОСТИКИ ---
-        # Проверяем, что переменные окружения загружены правильно.
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-            logging.error("CRITICAL: SUPABASE_URL or SUPABASE_SERVICE_KEY are not set in environment variables!")
-            # Если ключей нет, дальнейшая работа невозможна.
-            raise ValueError("Supabase URL and Service Key must be set.")
-        else:
-            # Логируем часть ключа для проверки, что он не пустой.
-            logging.info(f"Supabase URL: {SUPABASE_URL}")
-            logging.info(f"Supabase Service Key is present. Starts with: '{SUPABASE_SERVICE_KEY[:5]}...'")
-        # --- КОНЕЦ ШАГА ДИАГНОСТИКИ ---
+# Проверяем, что переменные окружения загружены правильно.
+if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    logging.error("CRITICAL: SUPABASE_URL or SUPABASE_SERVICE_KEY are not set in environment variables!")
+    # Если ключей нет, дальнейшая работа невозможна.
+    raise ValueError("Supabase URL and Service Key must be set.")
+else:
+    logging.info(f"Supabase URL: {SUPABASE_URL}")
+    logging.info(f"Supabase Service Key is present. Starts with: '{SUPABASE_SERVICE_KEY[:5]}...'")
 
-        # Используем service_role ключ, который имеет полные права доступа к БД
-        _supabase_client = await create_async_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-        logging.info("Supabase client initialized.")
-    return _supabase_client
+# Создаем клиент, используя service_role ключ
+supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # --- Функции для работы с БД ---
 
@@ -46,9 +33,6 @@ async def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
     Добавляет пользователя в таблицу `users`, если его ещё нет.
     """
     try:
-        # Получаем клиент
-        supabase = await get_supabase_client()
-        
         # 1. Проверяем, существует ли пользователь
         response = await supabase.table('users').select('id, status').eq('telegram_id', telegram_id).single().execute()
         
@@ -72,14 +56,15 @@ async def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
             return insert_response.data[0]
         else:
             # Логируем ошибку, если она есть в ответе от Supabase
-            logging.error(f"Failed to insert user {telegram_id}. Response: {insert_response}")
+            error_message = insert_response.get("message", "Unknown error")
+            logging.error(f"Failed to insert user {telegram_id}. Response: {error_message}")
             return None
 
     except Exception as e:
-        logging.error(f"An error occurred in insert_user for telegram_id {telegram_id}: {e}")
+        logging.error(f"An exception occurred in insert_user for telegram_id {telegram_id}: {e}")
         return None
 
 # В будущем здесь будут другие функции для работы с БД:
 # async def save_user_profile(user_id: str, data: dict):
-#     supabase = await get_supabase_client()
+#     response = await supabase.table('user_profile').insert(...).execute()
 #     ...
