@@ -6,7 +6,7 @@ from supabase.lib.client_async import create_async_client, AsyncClient
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 # Настраиваем логирование
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Правильный способ создания асинхронного клиента ---
 # Мы не можем создать клиент на верхнем уровне модуля, т.к. его создание - асинхронная операция.
@@ -21,6 +21,19 @@ async def get_supabase_client() -> AsyncClient:
     global _supabase_client
     if _supabase_client is None:
         logging.info("Initializing Supabase client for the first time...")
+        
+        # --- ШАГ ДИАГНОСТИКИ ---
+        # Проверяем, что переменные окружения загружены правильно.
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logging.error("CRITICAL: SUPABASE_URL or SUPABASE_SERVICE_KEY are not set in environment variables!")
+            # Если ключей нет, дальнейшая работа невозможна.
+            raise ValueError("Supabase URL and Service Key must be set.")
+        else:
+            # Логируем часть ключа для проверки, что он не пустой.
+            logging.info(f"Supabase URL: {SUPABASE_URL}")
+            logging.info(f"Supabase Service Key is present. Starts with: '{SUPABASE_SERVICE_KEY[:5]}...'")
+        # --- КОНЕЦ ШАГА ДИАГНОСТИКИ ---
+
         # Используем service_role ключ, который имеет полные права доступа к БД
         _supabase_client = await create_async_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         logging.info("Supabase client initialized.")
