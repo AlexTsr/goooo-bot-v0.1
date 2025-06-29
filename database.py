@@ -1,78 +1,54 @@
-import os
-import httpx
-from config import SUPABASE_URL, SUPABASE_KEY
+import logging
+from supabase_async import create_client, AsyncClient
+from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
-headers = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
-}
+# Создаем асинхронный клиент Supabase, который будет использоваться во всех функциях
+# Мы используем service_role ключ, который имеет полные права доступа к БД
+supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-# Добавление пользователя в таблицу `users`, если его ещё нет
+logging.basicConfig(level=logging.INFO)
+
 async def insert_user(telegram_id: int, tg_name: str):
-    # 1. Проверка, существует ли пользователь
-    params = {
-        "select": "id",
-        "telegram_id": f"eq.{telegram_id}"
-    }
+    """
+    Добавляет пользователя в таблицу `users`, если его ещё нет.
+    Использует новый, правильный способ работы с БД.
+    """
+    try:
+        # 1. Проверяем, существует ли пользователь
+        response = await supabase.table('users').select('id').eq('telegram_id', telegram_id).execute()
+        
+        # response.data будет списком. Если он не пустой, пользователь существует.
+        if response.data:
+            logging.info(f"User {telegram_id} already exists.")
+            # Возвращаем данные существующего пользователя
+            return response.data[0]
 
-    async with httpx.AsyncClient() as client:
-        check_response = await client.get(
-            f"{SUPABASE_URL}/rest/v1/users",
-            headers=headers,
-            params=params
-        )
-        check_response.raise_for_status()
-        existing_users = check_response.json()
-
-        if existing_users:
-            return existing_users[0]  # Уже существует
-
-        # 2. Если нет — добавляем
-        data = {
-            "telegram_id": str(telegram_id),
-            "tg_name": tg_name
+        # 2. Если пользователя нет — добавляем его
+        logging.info(f"User {telegram_id} not found. Creating new user.")
+        insert_data = {
+            "telegram_id": telegram_id,
+            "tg_name": tg_name,
+            "status": "onboarding" # Сразу ставим статус "проходит онбординг"
         }
+        
+        insert_response = await supabase.table('users').insert(insert_data).execute()
 
-        insert_response = await client.post(
-            f"{SUPABASE_URL}/rest/v1/users",
-            headers=headers,
-            json=data
-        )
-        insert_response.raise_for_status()
-        return insert_response.json()
+        # Проверяем, что вставка прошла успешно
+        if insert_response.data:
+            logging.info(f"User {telegram_id} created successfully.")
+            return insert_response.data[0]
+        else:
+            logging.error(f"Failed to insert user {telegram_id}. Response: {insert_response}")
+            return None
 
-# Получение UUID (id) пользователя по telegram_id
-async def get_user_id_by_telegram_id(telegram_id: int) -> str | None:
-    params = {
-        "select": "id",
-        "telegram_id": f"eq.{telegram_id}"
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{SUPABASE_URL}/rest/v1/users",
-            headers=headers,
-            params=params
-        )
-        response.raise_for_status()
-        users = response.json()
-        if users:
-            return users[0]["id"]
+    except Exception as e:
+        logging.error(f"An error occurred in insert_user for telegram_id {telegram_id}: {e}")
+        # Выводим детали ошибки, если они есть
+        if hasattr(e, 'message'):
+            logging.error(f"Error details: {e.message}")
         return None
 
-# Добавление user_profile (после онбординга)
-async def insert_user_profile(user_id: str, name: str):
-    data = {
-        "user_id": user_id,
-        "name": name
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{SUPABASE_URL}/rest/v1/user_profile",
-            headers=headers,
-            json=data
-        )
-        response.raise_for_status()
-        return response.json()
+# В будущем здесь будут другие функции для работы с БД:
+# async def save_onboarding_data(...)
+# async def create_training_plan(...)
+# и так далее.
