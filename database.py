@@ -53,7 +53,9 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
             "demotivation": data.get("demotivation"), "current_injuries": data.get("current_injuries"),
             "recurring_injuries": data.get("recurring_injuries"), "equipment": data.get("equipment"),
             "infrastructure": data.get("infrastructure"), "dietary_restrictions": data.get("dietary_restrictions"),
-            "personal_bests": {"records": data.get("personal_bests")}
+            "personal_bests": {"records": data.get("personal_bests")},
+            "weekly_volume_km": data.get("weekly_volume_km"), # <-- Новое поле
+            "additional_info": data.get("additional_info")   # <-- Новое поле
         }
         
         # 2. Готовим данные для preferences в формате JSON
