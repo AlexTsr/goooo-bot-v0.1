@@ -236,7 +236,7 @@ async def command_start(message: Message, state: FSMContext):
         await message.answer("Давай знакомиться. Я уже представился, а как тебя зовут?")
         await state.set_state(OnboardingState.waiting_for_name)
 
-# ... (все хэндлеры process_... до process_additional_info) ...
+# ... (все остальные хэндлеры process_... до process_additional_info) ...
 @dp.message(OnboardingState.waiting_for_additional_info)
 async def process_additional_info(message: Message, state: FSMContext):
     """Последний шаг онбординга. Сохраняем данные и вызываем LLM."""
