@@ -451,6 +451,13 @@ async def schedule_daily_notifications(bot: Bot):
         logging.error(f"Error scheduling notifications: {e}")
 
 # ASGI-приложение для uvicorn
+async def set_main_menu(bot: Bot):
+    commands = [
+        BotCommand(command="start", description="Начать работу"),
+        BotCommand(command="help", description="Получить помощь")
+    ]
+    await bot.set_my_commands(commands)
+
 async def on_startup(bot: Bot):
     logging.info("Starting bot...")
     await schedule_daily_notifications(bot)
