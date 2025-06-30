@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import json
+import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
@@ -15,7 +16,6 @@ from config import BOT_TOKEN, WEBHOOK_URL
 from database import supabase, get_user_by_telegram_id, insert_user, save_onboarding_data, get_full_user_profile, save_generated_plan
 from llm import generate_structured_plan_with_llm
 import uvicorn
-from aiogram.webhook import aiogram_webhook
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -450,7 +450,7 @@ async def schedule_daily_notifications(bot: Bot):
     except Exception as e:
         logging.error(f"Error scheduling notifications: {e}")
 
-# Main
+# ASGI-приложение для uvicorn
 async def on_startup(bot: Bot):
     logging.info("Starting bot...")
     await schedule_daily_notifications(bot)
@@ -462,22 +462,21 @@ async def on_shutdown(bot: Bot):
     await bot.delete_webhook()
     await bot.session.close()
 
-async def main():
+# Запуск приложения
+app = Dispatcher(storage=MemoryStorage())
+app.include_router(router)
+app.startup.register(on_startup)
+app.shutdown.register(on_shutdown)
+
+async def start_webhook():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
-
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    # Запуск вебхука с uvicorn
-    port = int(os.getenv("PORT", 8443))  # Используем порт из окружения или 8443 по умолчанию
-    app = aiogram_webhook(dp, bot=bot, secret_token="my_secret_token")
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    port = int(os.getenv("PORT", 8443))
+    logging.info(f"Starting webhook on port {port} with URL {WEBHOOK_URL}")
+    await on_startup(bot)
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
-
-import os  # Добавлен импорт os для работы с переменной окружения
+    await on_shutdown(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(start_webhook())
