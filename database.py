@@ -64,6 +64,7 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
             "training_days_per_week": data.get("training_days_per_week"),
             "preferred_days": data.get("preferred_days"),
             "trainings_per_day": data.get("trainings_per_day")
+            "long_run_day": data.get("long_run_day") # <-- Новое поле
         }
 
         # 3. Вызываем функцию 'upsert_user_onboarding_data' в БД через RPC (Remote Procedure Call)
@@ -100,7 +101,7 @@ def get_full_user_profile(user_id: str) -> Optional[dict]:
     except Exception as e:
         logging.error(f"An error occurred in get_full_user_profile for user_id {user_id}: {e}")
         return None
-        
+
 # добавление с LLM номер 2
 def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> bool:
     """

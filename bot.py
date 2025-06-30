@@ -18,7 +18,7 @@ from llm import generate_structured_plan_with_llm
 # Включаем логирование
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- FSM (Машина состояний) для онбординга ---
+# --- FSM States (добавляем новый шаг) ---
 class OnboardingState(StatesGroup):
     waiting_for_name = State()
     waiting_for_age = State()
@@ -32,6 +32,7 @@ class OnboardingState(StatesGroup):
     waiting_for_days_per_week = State()
     waiting_for_preferred_days = State()
     waiting_for_trainings_per_day = State()
+    waiting_for_long_run_day = State() # <-- Новый шаг
     waiting_for_current_injuries = State()
     waiting_for_recurring_injuries = State()
     waiting_for_equipment = State()
@@ -64,7 +65,8 @@ QUESTIONS_MAP = {
     "waiting_for_days_per_week": ("Сколько дней в неделю ты готов тренироваться?", OnboardingState.waiting_for_days_per_week, get_back_keyboard("waiting_for_personal_bests")),
     "waiting_for_preferred_days": ("В какие дни недели? (Например: пн, ср, пт)", OnboardingState.waiting_for_preferred_days, get_back_keyboard("waiting_for_days_per_week")),
     "waiting_for_trainings_per_day": ("Сколько раз в день готов тренироваться?", OnboardingState.waiting_for_trainings_per_day, get_back_keyboard("waiting_for_preferred_days")),
-    "waiting_for_current_injuries": ("С беговым опытом закончили, переходим к проблемам - твои травмы! Есть ли у тебя сейчас травмы или проблемы, которые нужно учесть при составлении тренировок?", OnboardingState.waiting_for_current_injuries, get_back_keyboard("waiting_for_trainings_per_day")),
+    "waiting_for_long_run_day": ("В какой день недели предпочитаешь бегать длительную тренировку?", OnboardingState.waiting_for_long_run_day, get_back_keyboard("waiting_for_trainings_per_day")),
+    "waiting_for_current_injuries": ("С беговым опытом закончили, переходим к проблемам - твои травмы! Есть ли у тебя сейчас травмы или проблемы, которые нужно учесть при составлении тренировок?", OnboardingState.waiting_for_current_injuries, get_back_keyboard("waiting_for_long_run_day")),
     "waiting_for_recurring_injuries": ("Есть ли травмы, которые прямо сейчас себя не проявляют, но часто возвращаются? Например, при высокой нагрузке или большом объёме?", OnboardingState.waiting_for_recurring_injuries, get_back_keyboard("waiting_for_current_injuries")),
     "waiting_for_equipment": ("Теперь об оборудовании и инфраструктуре. Какой спортивный инвентарь у тебя есть? Электронные часы, нагрудный пульсометр, гири, гантели, коврик для фитнеса, массажный мяч и прочее. Напиши всё!", OnboardingState.waiting_for_equipment, get_back_keyboard("waiting_for_recurring_injuries")),
     "waiting_for_infrastructure": ("Есть ли у тебя возможность посещать стадион или манеж? Если 'да', то сколько метров круг? Ходишь ли в спортзал, баню или сауну?", OnboardingState.waiting_for_infrastructure, get_back_keyboard("waiting_for_equipment")),
@@ -72,7 +74,6 @@ QUESTIONS_MAP = {
 }
 
 # --- Хэндлеры ---
-
 async def command_start(message: Message, state: FSMContext):
     await state.clear() 
     user_id = message.from_user.id
@@ -88,14 +89,7 @@ async def command_start(message: Message, state: FSMContext):
     await message.answer("Давай знакомиться. Я уже представился, а как тебя зовут?")
     await state.set_state(OnboardingState.waiting_for_name)
 
-async def process_generic_question(message: Message, state: FSMContext, current_state_key: str, next_state_key: str):
-    data_key = current_state_key.replace("waiting_for_", "")
-    await state.update_data({data_key: message.text})
-    question_text, _, markup = QUESTIONS_MAP[next_state_key]
-    await message.answer(question_text, reply_markup=markup)
-    next_state = getattr(OnboardingState, next_state_key)
-    await state.set_state(next_state)
-
+# ... (код process_name, process_age, process_height, process_weight без изменений) ...
 async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer("Сколько тебе лет?", reply_markup=get_back_keyboard("waiting_for_name"))
@@ -127,19 +121,29 @@ async def process_weight(message: Message, state: FSMContext):
         await message.answer("Пожалуйста, введи вес числом (например, 75.5).", reply_markup=get_back_keyboard("waiting_for_weight"))
 
 async def process_goal(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_goal", "waiting_for_motivation")
-
+    await state.update_data(goal=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_motivation"][0], reply_markup=QUESTIONS_MAP["waiting_for_motivation"][2])
+    await state.set_state(OnboardingState.waiting_for_motivation)
+    
 async def process_motivation(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_motivation", "waiting_for_demotivation")
+    await state.update_data(motivation=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_demotivation"][0], reply_markup=QUESTIONS_MAP["waiting_for_demotivation"][2])
+    await state.set_state(OnboardingState.waiting_for_demotivation)
 
 async def process_demotivation(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_demotivation", "waiting_for_experience")
+    await state.update_data(demotivation=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_experience"][0], reply_markup=QUESTIONS_MAP["waiting_for_experience"][2])
+    await state.set_state(OnboardingState.waiting_for_experience)
 
 async def process_experience(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_experience", "waiting_for_personal_bests")
+    await state.update_data(experience=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_personal_bests"][0], reply_markup=QUESTIONS_MAP["waiting_for_personal_bests"][2])
+    await state.set_state(OnboardingState.waiting_for_personal_bests)
 
 async def process_personal_bests(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_personal_bests", "waiting_for_days_per_week")
+    await state.update_data(personal_bests=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_days_per_week"][0], reply_markup=QUESTIONS_MAP["waiting_for_days_per_week"][2])
+    await state.set_state(OnboardingState.waiting_for_days_per_week)
 
 async def process_days_per_week(message: Message, state: FSMContext):
     if not message.text.isdigit():
@@ -150,65 +154,126 @@ async def process_days_per_week(message: Message, state: FSMContext):
     await state.set_state(OnboardingState.waiting_for_preferred_days)
 
 async def process_preferred_days(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_preferred_days", "waiting_for_trainings_per_day")
+    await state.update_data(preferred_days=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_trainings_per_day"][0], reply_markup=QUESTIONS_MAP["waiting_for_trainings_per_day"][2])
+    await state.set_state(OnboardingState.waiting_for_trainings_per_day)
 
 async def process_trainings_per_day(message: Message, state: FSMContext):
     if not message.text.isdigit():
         await message.answer("Пожалуйста, введи количество тренировок числом.", reply_markup=get_back_keyboard("waiting_for_preferred_days"))
         return
     await state.update_data(trainings_per_day=int(message.text))
+    await message.answer(QUESTIONS_MAP["waiting_for_long_run_day"][0], reply_markup=QUESTIONS_MAP["waiting_for_long_run_day"][2])
+    await state.set_state(OnboardingState.waiting_for_long_run_day)
+
+async def process_long_run_day(message: Message, state: FSMContext):
+    """Новый обработчик для дня длительной тренировки с валидацией."""
+    user_data = await state.get_data()
+    preferred_days = user_data.get("preferred_days", "").lower()
+    long_run_day_input = message.text.lower()
+
+    # Улучшенная проверка, которая убирает пробелы и работает с запятыми
+    if long_run_day_input not in [day.strip() for day in preferred_days.split(',')]:
+        await message.answer(
+            f"Ты ранее указал, что можешь заниматься в эти дни: {preferred_days}.\n"
+            "Пожалуйста, выбери день для длительной тренировки из этого списка.",
+            reply_markup=get_back_keyboard("waiting_for_trainings_per_day")
+        )
+        return
+    
+    await state.update_data(long_run_day=message.text)
     await message.answer(QUESTIONS_MAP["waiting_for_current_injuries"][0], reply_markup=QUESTIONS_MAP["waiting_for_current_injuries"][2])
     await state.set_state(OnboardingState.waiting_for_current_injuries)
 
 async def process_current_injuries(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_current_injuries", "waiting_for_recurring_injuries")
+    await state.update_data(current_injuries=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_recurring_injuries"][0], reply_markup=QUESTIONS_MAP["waiting_for_recurring_injuries"][2])
+    await state.set_state(OnboardingState.waiting_for_recurring_injuries)
 
 async def process_recurring_injuries(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_recurring_injuries", "waiting_for_equipment")
+    await state.update_data(recurring_injuries=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_equipment"][0], reply_markup=QUESTIONS_MAP["waiting_for_equipment"][2])
+    await state.set_state(OnboardingState.waiting_for_equipment)
 
 async def process_equipment(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_equipment", "waiting_for_infrastructure")
+    await state.update_data(equipment=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_infrastructure"][0], reply_markup=QUESTIONS_MAP["waiting_for_infrastructure"][2])
+    await state.set_state(OnboardingState.waiting_for_infrastructure)
 
 async def process_infrastructure(message: Message, state: FSMContext):
-    await process_generic_question(message, state, "waiting_for_infrastructure", "waiting_for_dietary_restrictions")
-    
+    await state.update_data(infrastructure=message.text)
+    await message.answer(QUESTIONS_MAP["waiting_for_dietary_restrictions"][0], reply_markup=QUESTIONS_MAP["waiting_for_dietary_restrictions"][2])
+    await state.set_state(OnboardingState.waiting_for_dietary_restrictions)
 
-# --- Добавление промтов LLM ---
-def format_prompt_for_json_llm(profile_data: dict) -> str:
-    """Форматирует данные пользователя в промпт, который просит LLM вернуть JSON."""
+def format_prompt_for_detailed_json(profile_data: dict, week_num: int = 1) -> str:
+    """Форматирует промпт для получения детального JSON по новому шаблону."""
     profile = profile_data.get('profile', {})
     preferences = profile_data.get('preferences', {})
     
+    phases = {1: "втягивающая", 2: "ударная", 3: "ударная", 4: "восстановительная"}
+    phase = phases.get(week_num, "втягивающая")
+    macrocycle_info = f"Это {week_num}-я неделя 4-недельного макроцикла. Фаза: {phase}. Учти это при составлении плана."
+
     prompt = f"""
-Проанализируй данные о спортсмене и создай для него персонализированный план тренировок и питания на 7 дней.
-Ответ должен быть СТРОГО в формате JSON, со следующей структурой:
+Проанализируй данные о спортсмене и создай для него персонализированный план на 7 дней.
+Ответ должен быть СТРОГО в формате JSON на русском языке.
+
+**Структура JSON:**
 {{
-  "training_plan": {{
-    "monday": {{"type": "...", "details": "...", "time_of_day": "..."}},
-    "tuesday": {{"type": "...", "details": "...", "time_of_day": "..."}},
-    ... (и так для всех 7 дней)
-  }},
-  "meal_plan": {{
-    "summary": {{"daily_calories": ..., "protein_g": ..., "fat_g": ..., "carbs_g": ...}},
-    "monday": {{"breakfast": "...", "lunch": "...", "dinner": "...", "snacks": ["...", "..."]}},
-    ... (и так для всех 7 дней)
-  }},
-  "shopping_list": ["Продукт 1, вес/кол-во", "Продукт 2, вес/кол-во", ...],
+  "training_plan": [
+    {{
+      "day_of_week": "Понедельник",
+      "date": "DD.MM",
+      "morning_workout": {{ "type": "Тип тренировки (например, Легкий бег или Отдых)", "details": "Детали (например, 8 км @ 6:00/км или -)", "nutrition_notes": "Питание до/после" }},
+      "evening_workout": {{ "type": "Тип (например, ОФП или Отдых)", "details": "Название блока (например, Верх тела + кор) или -", "nutrition_notes": "Питание до/после" }}
+    }}
+  ],
+  "workout_details": [
+    {{
+      "block_name": "Верх тела + кор",
+      "target_muscle_group": "Плечи, спина, кор",
+      "reps_and_sets": "2–3 круга",
+      "exercises": [
+        {{"name": "Жим гирь над головой", "details": "15–20 раз"}},
+        {{"name": "Тяга эспандера к груди", "details": "15 раз"}}
+      ]
+    }}
+  ],
+  "meal_plan": [
+    {{
+      "day_of_week": "Понедельник",
+      "total_calories": 1950,
+      "meals": [
+        {{"meal_type": "Завтрак", "description": "Овсянка (80 г), банан + льняное масло"}},
+        {{"meal_type": "Обед", "description": "Гречка (100 г), куриное филе (150 г), овощи"}}
+      ]
+    }}
+  ],
+  "shopping_list": [
+      {{"category": "Зерновые/крупы", "items": ["Овсянка: 600 г", "Гречка: 300 г"]}},
+      {{"category": "Белок", "items": ["Курица (филе): 450 г", "Яйца: 4 шт."]}},
+      {{"category": "Овощи", "items": ["Огурцы: 800 г", "Помидоры: 600 г"]}}
+  ],
   "general_recommendations": "Твои общие рекомендации по восстановлению, сну и т.д."
 }}
 
-ДАННЫЕ О СПОРТСМЕНЕ:
-- Имя: {profile.get('name', 'Не указано')}
-- Возраст: {profile.get('age', 'Не указано')}
-- Рост: {profile.get('height_cm', 'Не указано')} см
-- Вес: {profile.get('initial_weight_kg', 'Не указано')} кг
-- Основная цель: {profile.get('goal', 'Не указано')}
-- Беговой опыт: {profile.get('experience', 'Не указано')}
-- Личные рекорды: {profile.get('personal_bests', {}).get('records', 'Не указано')}
-- Мотивация: {profile.get('motivation', 'Не указано')}
-- Демотивация: {profile.get('demotivation', 'Не указано')}
-- Дней для тренировок в неделю: {preferences.get('training_days_per_week', 'Не указано')}
-- Предпочтительные дни: {preferences.get('preferred_days', 'Не указано')}
+**Контекст тренировочного цикла:**
+{macrocycle_info}
+
+**Данные о спортсмене:**
+- Имя: {profile.get('name', 'N/A')}
+- Возраст: {profile.get('age', 'N/A')}
+- Рост: {profile.get('height_cm', 'N/A')} см
+- Вес: {profile.get('initial_weight_kg', 'N/A')} кг
+- Основная цель: {profile.get('goal', 'N/A')}
+- Беговой опыт: {profile.get('experience', 'N/A')}
+- Личные рекорды: {profile.get('personal_bests', {}).get('records', 'N/A')}
+- Мотивация: {profile.get('motivation', 'N/A')}
+- Демотивация: {profile.get('demotivation', 'N/A')}
+- Дней для тренировок в неделю: {preferences.get('training_days_per_week', 'N/A')}
+- Предпочтительные дни: {preferences.get('preferred_days', 'N/A')}
+- Тренировок в день: {preferences.get('trainings_per_day', 'N/A')}
+- День для длительной: {preferences.get('long_run_day', 'N/A')}
 - Текущие травмы: {profile.get('current_injuries', 'Нет')}
 - Повторяющиеся травмы: {profile.get('recurring_injuries', 'Нет')}
 - Пищевые ограничения: {profile.get('dietary_restrictions', 'Нет')}
@@ -217,35 +282,44 @@ def format_prompt_for_json_llm(profile_data: dict) -> str:
 """
     return prompt.strip()
 
-def format_plan_for_user(plan_data: dict) -> str:
-    """Красиво форматирует JSON-план для отправки пользователю."""
+def format_detailed_plan_for_user(plan_data: dict) -> str:
+    """Красиво форматирует новый детальный JSON-план."""
     if "error" in plan_data:
         return f"Произошла ошибка: {plan_data['error']}"
 
-    output = "### 🏃‍♂️ Ваш план тренировок\n\n"
-    training_plan = plan_data.get("training_plan", {})
-    for day, details in training_plan.items():
-        output += f"**{day.capitalize()}:** {details.get('type', '')} - {details.get('details', '')}\n"
+    output = "🏃‍♂️ **План тренировок**\n\n"
+    for day in plan_data.get("training_plan", []):
+        output += f"**{day.get('day_of_week')} ({day.get('date')})**\n"
+        mw = day.get('morning_workout')
+        ew = day.get('evening_workout')
+        if mw and mw.get('type') and mw.get('type').lower() != 'отдых':
+            output += f"- *Утро:* {mw.get('type')} - {mw.get('details')}\n"
+        if ew and ew.get('type') and ew.get('type').lower() != 'отдых':
+            output += f"- *Вечер:* {ew.get('type')} - {ew.get('details')}\n"
+    
+    output += "\n💪 **Детали силовых и СБУ**\n\n"
+    for block in plan_data.get("workout_details", []):
+        output += f"**{block.get('block_name')}** ({block.get('reps_and_sets')})\n"
+        for ex in block.get("exercises", []):
+            output += f"- {ex.get('name')}: {ex.get('details')}\n"
+        output += "\n"
 
-    output += "\n### 🍽️ Ваш план питания\n\n"
-    meal_plan = plan_data.get("meal_plan", {})
-    summary = meal_plan.get("summary", {})
-    output += f"**Средняя калорийность:** {summary.get('daily_calories', 'N/A')} ккал\n"
-    for day, meals in meal_plan.items():
-        if day == "summary": continue
-        output += f"**{day.capitalize()}:**\n"
-        output += f"  - Завтрак: {meals.get('breakfast', '')}\n"
-        output += f"  - Обед: {meals.get('lunch', '')}\n"
-        output += f"  - Ужин: {meals.get('dinner', '')}\n"
+    output += "🍽️ **План питания**\n\n"
+    for day in plan_data.get("meal_plan", []):
+        output += f"**{day.get('day_of_week')} (~{day.get('total_calories')} ккал)**\n"
+        for meal in day.get("meals", []):
+            output += f"- *{meal.get('meal_type')}:* {meal.get('description')}\n"
+    
+    output += "\n🛒 **Список покупок**\n\n"
+    for category in plan_data.get("shopping_list", []):
+        output += f"**{category.get('category')}**\n"
+        for item in category.get('items', []):
+            output += f"- {item}\n"
+    
+    output += "\n✅ **Общие рекомендации**\n"
+    output += plan_data.get("general_recommendations", "Нет.")
 
-    output += "\n### 🛒 Список покупок\n"
-    shopping_list = plan_data.get("shopping_list", [])
-    output += ", ".join(shopping_list) + "\n"
-
-    output += "\n### ✅ Общие рекомендации\n"
-    output += plan_data.get("general_recommendations", "")
-
-    return output
+    return output.strip()
 
 async def process_dietary_restrictions(message: Message, state: FSMContext):
     """Последний шаг онбординга. Сохраняем данные, вызываем LLM, форматируем и сохраняем план."""
@@ -260,21 +334,18 @@ async def process_dietary_restrictions(message: Message, state: FSMContext):
         success = await asyncio.to_thread(save_onboarding_data, user_db_id, user_data)
         
         if success:
-            await message.answer("Отлично! Профиль сохранен. Генерирую твой первый план. Это может занять до минуты...", parse_mode=None) # Убираем parse_mode, чтобы не было конфликтов
+            await message.answer("Отлично! Профиль сохранен. Генерирую твой первый план. Это может занять до минуты...", parse_mode=None)
             
             full_profile = await asyncio.to_thread(get_full_user_profile, user_db_id)
             if full_profile:
-                prompt = format_prompt_for_json_llm(full_profile)
+                prompt = format_prompt_for_detailed_json(full_profile)
                 
-                # Вызываем LLM для получения СТРУКТУРИРОВАННОГО плана
                 plan_json = await generate_structured_plan_with_llm(prompt)
                 
                 if "error" not in plan_json:
-                    # Форматируем красивый ответ для пользователя
-                    formatted_plan = format_plan_for_user(plan_json)
+                    formatted_plan = format_detailed_plan_for_user(plan_json)
                     await message.answer(formatted_plan, parse_mode=ParseMode.MARKDOWN)
 
-                    # Сохраняем структурированный план в БД
                     today = date.today().isoformat()
                     await asyncio.to_thread(save_generated_plan, user_db_id, today, plan_json)
                 else:
@@ -287,10 +358,8 @@ async def process_dietary_restrictions(message: Message, state: FSMContext):
         await message.answer("Не смог найти твой профиль для сохранения.")
     await state.clear()
 
-# --- Хэндлер для кнопки "Назад" ---
 @dp.callback_query(F.data.startswith("back_to:"))
 async def navigate_back(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает нажатие кнопки 'Назад'."""
     previous_state_name = callback.data.split(":")[1]
     question_data = QUESTIONS_MAP.get(previous_state_name)
     
@@ -300,10 +369,7 @@ async def navigate_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(new_state)
     await callback.answer()
 
-# --- РЕГИСТРАЦИЯ ХЭНДЛЕРОВ И ЗАПУСК БОТА ---
-
 def register_handlers(dp: Dispatcher):
-    """Регистрирует все хэндлеры сообщений."""
     dp.message.register(command_start, F.text.startswith("/start"))
     dp.message.register(process_name, OnboardingState.waiting_for_name)
     dp.message.register(process_age, OnboardingState.waiting_for_age)
@@ -317,6 +383,7 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(process_days_per_week, OnboardingState.waiting_for_days_per_week)
     dp.message.register(process_preferred_days, OnboardingState.waiting_for_preferred_days)
     dp.message.register(process_trainings_per_day, OnboardingState.waiting_for_trainings_per_day)
+    dp.message.register(process_long_run_day, OnboardingState.waiting_for_long_run_day)
     dp.message.register(process_current_injuries, OnboardingState.waiting_for_current_injuries)
     dp.message.register(process_recurring_injuries, OnboardingState.waiting_for_recurring_injuries)
     dp.message.register(process_equipment, OnboardingState.waiting_for_equipment)
@@ -324,7 +391,6 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(process_dietary_restrictions, OnboardingState.waiting_for_dietary_restrictions)
 
 async def main():
-    """Основная функция для запуска бота."""
     register_handlers(dp)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
