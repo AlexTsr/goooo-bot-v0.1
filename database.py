@@ -13,6 +13,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 def get_user_by_telegram_id(telegram_id: int) -> Optional[dict]:
+    """Находит пользователя по его telegram_id и возвращает его запись из таблицы users."""
     try:
         response = supabase.table('users').select('id, status').eq('telegram_id', telegram_id).limit(1).execute()
         if response.data:
@@ -23,10 +24,10 @@ def get_user_by_telegram_id(telegram_id: int) -> Optional[dict]:
         return None
 
 def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
+    """Создает пользователя, если его нет."""
     try:
         existing_user = get_user_by_telegram_id(telegram_id)
         if existing_user:
-            logging.info(f"User {telegram_id} already exists with status: {existing_user.get('status')}")
             return existing_user
 
         logging.info(f"User {telegram_id} not found. Creating new user.")
@@ -71,7 +72,7 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
         }
         profile_data = {k: v for k, v in profile_data.items() if v is not None}
         
-        # Используем upsert вместо insert
+        # Используем upsert вместо insert. Это ключевое изменение.
         supabase.table('user_profile').upsert(profile_data).execute()
         logging.info(f"Upserted user_profile for user_id: {user_id}")
         
@@ -83,10 +84,11 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
         }
         preferences_data = {k: v for k, v in preferences_data.items() if v is not None}
         
-        # Используем upsert вместо insert
+        # И здесь тоже используем upsert.
         supabase.table('training_preferences').upsert(preferences_data).execute()
         logging.info(f"Upserted training_preferences for user_id: {user_id}")
 
+        # В конце обновляем статус пользователя на 'active'
         supabase.table('users').update({"status": "active"}).eq("id", user_id).execute()
         logging.info(f"Updated user status to 'active' for user_id: {user_id}")
         
