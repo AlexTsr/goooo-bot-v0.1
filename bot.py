@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.client.default import DefaultBotProperties
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEBHOOK_URL
 from database import supabase, get_user_by_telegram_id, insert_user, save_onboarding_data, get_full_user_profile, save_generated_plan
 from llm import generate_structured_plan_with_llm
 
@@ -457,9 +457,17 @@ async def main():
     await set_main_menu(bot)
     await schedule_daily_notifications(bot)
 
+    # Установка вебхука
+    webhook_url = WEBHOOK_URL
+    if webhook_url:
+        await bot.set_webhook(url=webhook_url)
+        await dp.start_webhook(webhook_url=webhook_url, webhook_secret_token="my_secret_token")
+    else:
+        logging.error("WEBHOOK_URL is not set in config!")
+        raise ValueError("WEBHOOK_URL must be set in config.py")
+
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        await dp.start_webhook(webhook_url=webhook_url, webhook_secret_token="my_secret_token")
     except Exception as e:
         logging.critical(f"Bot crashed: {e}", exc_info=True)
     finally:
