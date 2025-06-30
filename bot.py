@@ -14,6 +14,8 @@ from apscheduler.triggers.cron import CronTrigger
 from config import BOT_TOKEN, WEBHOOK_URL
 from database import supabase, get_user_by_telegram_id, insert_user, save_onboarding_data, get_full_user_profile, save_generated_plan
 from llm import generate_structured_plan_with_llm
+import uvicorn
+from aiogram.webhook import aiogram_webhook
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -449,32 +451,33 @@ async def schedule_daily_notifications(bot: Bot):
         logging.error(f"Error scheduling notifications: {e}")
 
 # Main
-async def main():
+async def on_startup(bot: Bot):
     logging.info("Starting bot...")
+    await schedule_daily_notifications(bot)
+    await set_main_menu(bot)
+    await bot.set_webhook(url=WEBHOOK_URL)
+
+async def on_shutdown(bot: Bot):
+    logging.info("Shutting down bot...")
+    await bot.delete_webhook()
+    await bot.session.close()
+
+async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
 
-    await set_main_menu(bot)
-    await schedule_daily_notifications(bot)
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
 
-    # Установка вебхука
-    webhook_url = WEBHOOK_URL
-    if webhook_url:
-        await bot.set_webhook(url=webhook_url)
-        await dp.start_webhook(webhook_url=webhook_url, webhook_secret_token="my_secret_token")
-    else:
-        logging.error("WEBHOOK_URL is not set in config!")
-        raise ValueError("WEBHOOK_URL must be set in config.py")
+    # Запуск вебхука с uvicorn
+    port = int(os.getenv("PORT", 8443))  # Используем порт из окружения или 8443 по умолчанию
+    app = aiogram_webhook(dp, bot=bot, secret_token="my_secret_token")
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
 
-    try:
-        await dp.start_webhook(webhook_url=webhook_url, webhook_secret_token="my_secret_token")
-    except Exception as e:
-        logging.critical(f"Bot crashed: {e}", exc_info=True)
-    finally:
-        await bot.session.close()
-
-async def set_main_menu(bot: Bot):
-    await bot.set_my_commands([BotCommand(command="/start", description="Начать/обновить")])
+import os  # Добавлен импорт os для работы с переменной окружения
 
 if __name__ == "__main__":
     asyncio.run(main())
