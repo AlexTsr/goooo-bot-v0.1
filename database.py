@@ -7,9 +7,6 @@ from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Добавляем строку для проверки версии
-logging.info("--- Loading database.py version: RPC_V1 ---")
-
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise ValueError("Supabase URL and Service Key must be set.")
 
@@ -63,8 +60,8 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
         preferences_data = {
             "training_days_per_week": data.get("training_days_per_week"),
             "preferred_days": data.get("preferred_days"),
-            "trainings_per_day": data.get("trainings_per_day")
-            "long_run_day": data.get("long_run_day") # <-- Новое поле
+            "trainings_per_day": data.get("trainings_per_day"), # <-- ИСПРАВЛЕНО: Добавлена запятая
+            "long_run_day": data.get("long_run_day")
         }
 
         # 3. Вызываем функцию 'upsert_user_onboarding_data' в БД через RPC (Remote Procedure Call)
@@ -81,14 +78,12 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
         logging.error(f"An error occurred in save_onboarding_data RPC for user_id {user_id}: {e}")
         return False
 
-# добавление с LLM номер 1
 def get_full_user_profile(user_id: str) -> Optional[dict]:
     """
     Собирает полную информацию о пользователе из таблиц user_profile и training_preferences.
     """
     try:
         # Вызываем хранимую процедуру, которая объединяет данные
-        # Это эффективнее, чем делать несколько запросов
         response = supabase.rpc('get_user_complete_profile', {'p_user_id': user_id}).execute()
         
         if response.data:
@@ -102,7 +97,6 @@ def get_full_user_profile(user_id: str) -> Optional[dict]:
         logging.error(f"An error occurred in get_full_user_profile for user_id {user_id}: {e}")
         return None
 
-# добавление с LLM номер 2
 def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> bool:
     """
     Сохраняет сгенерированный план тренировок и питания в базу данных.
@@ -122,11 +116,19 @@ def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> 
         meal_plan = plan_data.get("meal_plan")
         shopping_list = plan_data.get("shopping_list")
         if meal_plan:
+            # Преобразуем список словарей в строку для сохранения
+            shopping_list_str = ""
+            if isinstance(shopping_list, list):
+                for category in shopping_list:
+                    shopping_list_str += f"**{category.get('category')}**\n"
+                    for item in category.get('items', []):
+                        shopping_list_str += f"- {item}\n"
+
             supabase.table('meal_plans').upsert({
                 "user_id": user_id,
                 "week_start_date": week_start_date,
                 "plan_details": meal_plan,
-                "shopping_list": "\n".join(shopping_list) if shopping_list else ""
+                "shopping_list": shopping_list_str
             }).execute()
             logging.info(f"Saved meal plan for user {user_id}")
         
