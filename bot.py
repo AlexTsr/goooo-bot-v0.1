@@ -45,7 +45,6 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher(storage=storage)
 
 # --- Словарь с вопросами для навигации "Назад" ---
-# Определяем его в глобальной области, чтобы он был доступен везде
 QUESTIONS_MAP = {
     "waiting_for_name": ("Давай знакомиться. Я уже представился, а как тебя зовут?", OnboardingState.waiting_for_name, None),
     "waiting_for_age": ("Сколько тебе лет?", OnboardingState.waiting_for_age, get_back_keyboard("waiting_for_name")),
@@ -84,17 +83,10 @@ async def command_start(message: Message, state: FSMContext):
     await state.set_state(OnboardingState.waiting_for_name)
 
 async def process_generic_question(message: Message, state: FSMContext, current_state_key: str, next_state_key: str):
-    """Общая функция для обработки текстовых ответов и перехода к следующему вопросу."""
-    # Сохраняем ответ пользователя. Ключ для сохранения берем из имени состояния.
-    # Например, для "waiting_for_goal" ключ будет "goal"
     data_key = current_state_key.replace("waiting_for_", "")
     await state.update_data({data_key: message.text})
-    
-    # Задаем следующий вопрос
     question_text, _, markup = QUESTIONS_MAP[next_state_key]
     await message.answer(question_text, reply_markup=markup)
-    
-    # Переводим машину в следующее состояние
     next_state = getattr(OnboardingState, next_state_key)
     await state.set_state(next_state)
 
@@ -175,7 +167,6 @@ async def process_infrastructure(message: Message, state: FSMContext):
     await process_generic_question(message, state, "waiting_for_infrastructure", "waiting_for_dietary_restrictions")
     
 async def process_dietary_restrictions(message: Message, state: FSMContext):
-    """Последний шаг онбординга. Сохраняем все данные в БД."""
     await state.update_data(dietary_restrictions=message.text)
     user_data = await state.get_data()
     telegram_id = message.from_user.id
@@ -193,24 +184,18 @@ async def process_dietary_restrictions(message: Message, state: FSMContext):
         await message.answer("Не смог найти твой профиль для сохранения.")
     await state.clear()
 
-# --- Хэндлер для кнопки "Назад" ---
 @dp.callback_query(F.data.startswith("back_to:"))
 async def navigate_back(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает нажатие кнопки 'Назад'."""
     previous_state_name = callback.data.split(":")[1]
     question_data = QUESTIONS_MAP.get(previous_state_name)
     
     if question_data:
         question_text, new_state, markup = question_data
-        # Редактируем сообщение, чтобы задать предыдущий вопрос
         await callback.message.edit_text(question_text, reply_markup=markup)
         await state.set_state(new_state)
     await callback.answer()
 
-# --- РЕГИСТРАЦИЯ ХЭНДЛЕРОВ И ЗАПУСК БОТА ---
-
 def register_handlers(dp: Dispatcher):
-    """Регистрирует все хэндлеры сообщений."""
     dp.message.register(command_start, F.text.startswith("/start"))
     dp.message.register(process_name, OnboardingState.waiting_for_name)
     dp.message.register(process_age, OnboardingState.waiting_for_age)
@@ -231,7 +216,6 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(process_dietary_restrictions, OnboardingState.waiting_for_dietary_restrictions)
 
 async def main():
-    """Основная функция для запуска бота."""
     register_handlers(dp)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
