@@ -8,10 +8,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from config import BOT_TOKEN
-from database import insert_user
+from database import insert_user # Импортируем новую СИНХРОННУЮ функцию
 
 # Включаем логирование
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- FSM (Машина состояний) для онбординга ---
 class OnboardingState(StatesGroup):
@@ -31,12 +31,17 @@ async def command_start(message: Message, state: FSMContext):
     """
     Этот хэндлер вызывается при старте.
     """
-    await state.clear() # На всякий случай сбрасываем состояние, если пользователь перезапускает
+    await state.clear() 
     user_id = message.from_user.id
     tg_name = message.from_user.full_name
     
-    logging.info(f"Processing /start command for user {user_id}")
-    await insert_user(user_id, tg_name)
+    logging.info(f"Processing /start for user {user_id}. Running DB op in thread...")
+    
+    # --- ИСПРАВЛЕНИЕ ДЛЯ TypeError ---
+    # Запускаем СИНХРОННУЮ функцию insert_user в отдельном потоке,
+    # чтобы она не блокировала асинхронный код бота.
+    await asyncio.to_thread(insert_user, user_id, tg_name)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     await message.answer(
         "Привет! Далее в сообщениях я запрошу у тебя информацию, которая понадобится "
@@ -64,7 +69,6 @@ async def main():
     
     # --- ИСПРАВЛЕНИЕ ДЛЯ TelegramConflictError ---
     # Перед запуском поллинга, мы удаляем вебхук и все накопленные обновления.
-    # Это гарантирует, что только наш текущий экземпляр бота будет активен.
     await bot.delete_webhook(drop_pending_updates=True)
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
