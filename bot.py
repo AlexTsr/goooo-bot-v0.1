@@ -12,7 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from config import BOT_TOKEN
-from database import get_user_by_telegram_id, insert_user, save_onboarding_data, get_full_user_profile, save_generated_plan
+from database import supabase, get_user_by_telegram_id, insert_user, save_onboarding_data, get_full_user_profile, save_generated_plan
 from llm import generate_structured_plan_with_llm
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -430,16 +430,19 @@ async def send_daily_plan(bot: Bot, user_id: int, plan_data: dict):
 async def schedule_daily_notifications(bot: Bot):
     scheduler = AsyncIOScheduler()
     scheduler.start()
-    users = supabase.table('users').select('telegram_id, id').eq('status', 'active').execute().data
-    for user in users:
-        last_plan = supabase.table('training_plans').select('plan_details').eq('user_id', user['id']).order('created_at', desc=True).limit(1).execute().data
-        if last_plan:
-            scheduler.add_job(
-                send_daily_plan,
-                CronTrigger(hour=7, minute=0, timezone="Europe/Berlin"),  # 7:00 AM CET
-                args=[bot, user['telegram_id'], last_plan[0]['plan_details']]
-            )
-            logging.info(f"Scheduled for {user['telegram_id']}")
+    try:
+        users = supabase.table('users').select('telegram_id, id').eq('status', 'active').execute().data
+        for user in users:
+            last_plan = supabase.table('training_plans').select('plan_details').eq('user_id', user['id']).order('created_at', desc=True).limit(1).execute().data
+            if last_plan:
+                scheduler.add_job(
+                    send_daily_plan,
+                    CronTrigger(hour=7, minute=0, timezone="Europe/Berlin"),  # 7:00 AM CET
+                    args=[bot, user['telegram_id'], last_plan[0]['plan_details']]
+                )
+                logging.info(f"Scheduled for {user['telegram_id']}")
+    except Exception as e:
+        logging.error(f"Error scheduling notifications: {e}")
 
 # Main
 async def main():
