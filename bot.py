@@ -2,9 +2,8 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
@@ -146,6 +145,8 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
     return output.strip()
 
 # Handlers
+dp = Dispatcher(storage=MemoryStorage())
+
 @dp.message(F.text.startswith("/start"))
 async def command_start(message: Message, state: FSMContext):
     await state.clear()
@@ -442,7 +443,7 @@ async def schedule_daily_notifications(bot: Bot):
 # Main
 async def main():
     logging.info("Starting bot...")
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
+    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.MARKDOWN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_routers()
 
