@@ -8,6 +8,7 @@ from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, C
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.client.default import DefaultBotProperties
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from config import BOT_TOKEN
@@ -113,7 +114,7 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
         return f"Ошибка: {plan_data['error']}"
     
     output = f"_{plan_data.get('intro_summary', 'Ваш план:')}_\n\n"
-    output += "🏃‍♂️ Тренировки\n"
+    output += "### 🏃‍♂️ Тренировки\n"
     for day in plan_data.get("training_plan", []):
         output += f"**{day['day_of_week']} ({day['date']})**\n"
         if day.get("morning_workout", {}).get("type") != "Отдых":
@@ -121,25 +122,25 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
         if day.get("evening_workout", {}).get("type") != "Отдых":
             output += f"- Вечер: {day['evening_workout']['type']} - {day['evening_workout']['details']}\n"
     
-    output += "\n💪 Силовые/СБУ\n"
+    output += "\n### 💪 Силовые/СБУ\n"
     for block in plan_data.get("workout_details", []):
         output += f"**{block['block_name']} ({block['reps_and_sets']})**\n"
         for ex in block.get("exercises", []):
             output += f"- {ex['name']}: {ex['details']}\n"
     
-    output += "\n🍽️ Питание\n"
+    output += "\n### 🍽️ Питание\n"
     for day in plan_data.get("meal_plan", []):
         output += f"**{day['day_of_week']} (~{day['total_calories']} ккал)**\n"
         for meal in day.get("meals", []):
             output += f"- {meal['meal_type']}: {meal['description']}\n"
     
-    output += "\n🛒 Список покупок\n"
+    output += "\n### 🛒 Список покупок\n"
     for cat in plan_data.get("shopping_list", []):
         output += f"**{cat['category']}**\n"
         for item in cat.get("items", []):
             output += f"- {item}\n"
     
-    output += "\n✅ Рекомендации\n"
+    output += "\n### ✅ Рекомендации\n"
     output += plan_data.get("general_recommendations", "Нет рекомендаций.")
     
     return output.strip()
@@ -443,9 +444,8 @@ async def schedule_daily_notifications(bot: Bot):
 # Main
 async def main():
     logging.info("Starting bot...")
-    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.MARKDOWN)
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_routers()
 
     await set_main_menu(bot)
     await schedule_daily_notifications(bot)
