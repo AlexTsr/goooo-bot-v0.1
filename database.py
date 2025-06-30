@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 # Импортируем только create_client.
-from supabase import create_client 
+from supabase import create_client
 # AsyncClient убран, т.к. он не предназначен для прямого импорта.
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
