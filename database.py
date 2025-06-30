@@ -80,6 +80,7 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
         logging.error(f"An error occurred in save_onboarding_data RPC for user_id {user_id}: {e}")
         return False
 
+# добавление с LLM номер 1
 def get_full_user_profile(user_id: str) -> Optional[dict]:
     """
     Собирает полную информацию о пользователе из таблиц user_profile и training_preferences.
@@ -99,3 +100,36 @@ def get_full_user_profile(user_id: str) -> Optional[dict]:
     except Exception as e:
         logging.error(f"An error occurred in get_full_user_profile for user_id {user_id}: {e}")
         return None
+        
+# добавление с LLM номер 2
+def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> bool:
+    """
+    Сохраняет сгенерированный план тренировок и питания в базу данных.
+    """
+    try:
+        # 1. Сохраняем план тренировок
+        training_plan = plan_data.get("training_plan")
+        if training_plan:
+            supabase.table('training_plans').upsert({
+                "user_id": user_id,
+                "week_start_date": week_start_date,
+                "plan_details": training_plan
+            }).execute()
+            logging.info(f"Saved training plan for user {user_id}")
+
+        # 2. Сохраняем план питания
+        meal_plan = plan_data.get("meal_plan")
+        shopping_list = plan_data.get("shopping_list")
+        if meal_plan:
+            supabase.table('meal_plans').upsert({
+                "user_id": user_id,
+                "week_start_date": week_start_date,
+                "plan_details": meal_plan,
+                "shopping_list": "\n".join(shopping_list) if shopping_list else ""
+            }).execute()
+            logging.info(f"Saved meal plan for user {user_id}")
+        
+        return True
+    except Exception as e:
+        logging.error(f"An error occurred in save_generated_plan for user {user_id}: {e}")
+        return False
