@@ -8,8 +8,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from config import BOT_TOKEN
-from database import insert_user, get_user_by_telegram_id, save_onboarding_data
+# Импортируем все необходимые функции
+from database import insert_user, get_user_by_telegram_id, save_onboarding_data, get_full_user_profile
+from llm import generate_plan_with_llm
 
+# Включаем логирование
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- FSM (Машина состояний) для онбординга ---
@@ -166,7 +169,49 @@ async def process_equipment(message: Message, state: FSMContext):
 async def process_infrastructure(message: Message, state: FSMContext):
     await process_generic_question(message, state, "waiting_for_infrastructure", "waiting_for_dietary_restrictions")
     
+def format_prompt_for_llm(profile_data: dict) -> str:
+    """Форматирует данные пользователя в красивый промпт для LLM."""
+    profile = profile_data.get('profile', {})
+    preferences = profile_data.get('preferences', {})
+    
+    prompt = f"""
+Вот данные о спортсмене. Пожалуйста, создай для него персонализированный план тренировок и питания на 7 дней.
+
+**ОСНОВНЫЕ ДАННЫЕ:**
+- **Имя:** {profile.get('name', 'Не указано')}
+- **Возраст:** {profile.get('age', 'Не указано')}
+- **Рост:** {profile.get('height_cm', 'Не указано')} см
+- **Вес:** {profile.get('initial_weight_kg', 'Не указано')} кг
+- **Основная цель:** {profile.get('goal', 'Не указано')}
+- **Беговой опыт:** {profile.get('experience', 'Не указано')}
+- **Личные рекорды:** {profile.get('personal_bests', {}).get('records', 'Не указано')}
+
+**МОТИВАЦИЯ И ПРЕДПОЧТЕНИЯ:**
+- **Мотивация:** {profile.get('motivation', 'Не указано')}
+- **Демотивация:** {profile.get('demotivation', 'Не указано')}
+- **Готов тренироваться дней в неделю:** {preferences.get('training_days_per_week', 'Не указано')}
+- **Предпочтительные дни:** {preferences.get('preferred_days', 'Не указано')}
+- **Готов тренироваться раз в день:** {preferences.get('trainings_per_day', 'Не указано')}
+
+**ЗДОРОВЬЕ И ОГРАНИЧЕНИЯ:**
+- **Текущие травмы:** {profile.get('current_injuries', 'Нет')}
+- **Повторяющиеся травмы:** {profile.get('recurring_injuries', 'Нет')}
+- **Пищевые ограничения/предпочтения:** {profile.get('dietary_restrictions', 'Нет')}
+
+**ИНВЕНТАРЬ И ИНФРАСТРУКТУРА:**
+- **Оборудование:** {profile.get('equipment', 'Нет')}
+- **Инфраструктура:** {profile.get('infrastructure', 'Нет')}
+
+**ЗАДАНИЕ:**
+1.  Создай недельный план тренировок. Укажи тип каждой тренировки (легкий кросс, интервалы, силовая), объем, интенсивность (темп, пульсовая зона).
+2.  Создай синхронизированный план питания на 7 дней с указанием КБЖУ на каждый день и примерами блюд.
+3.  Дай краткие рекомендации по восстановлению.
+4.  Ответ должен быть структурирован с использованием Markdown для легкого чтения.
+"""
+    return prompt.strip()
+
 async def process_dietary_restrictions(message: Message, state: FSMContext):
+    """Последний шаг онбординга. Сохраняем данные и вызываем LLM."""
     await state.update_data(dietary_restrictions=message.text)
     user_data = await state.get_data()
     telegram_id = message.from_user.id
@@ -176,16 +221,31 @@ async def process_dietary_restrictions(message: Message, state: FSMContext):
     if user:
         user_db_id = user['id']
         success = await asyncio.to_thread(save_onboarding_data, user_db_id, user_data)
+        
         if success:
-            await message.answer("Отлично! Твой профиль создан и сохранен.")
+            await message.answer("Отлично! Твой профиль создан и сохранен. Теперь я сгенерирую твой первый план. Это может занять до минуты...")
+            
+            full_profile = await asyncio.to_thread(get_full_user_profile, user_db_id)
+            if full_profile:
+                prompt = format_prompt_for_llm(full_profile)
+                logging.info(f"Generated prompt for user {user_db_id}:\n{prompt}")
+                
+                # Асинхронно вызываем LLM
+                plan = await generate_plan_with_llm(prompt)
+                
+                await message.answer(plan)
+            else:
+                await message.answer("Не удалось получить данные твоего профиля для генерации плана.")
         else:
             await message.answer("Произошла ошибка при сохранении профиля.")
     else:
         await message.answer("Не смог найти твой профиль для сохранения.")
     await state.clear()
 
+# --- Хэндлер для кнопки "Назад" ---
 @dp.callback_query(F.data.startswith("back_to:"))
 async def navigate_back(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает нажатие кнопки 'Назад'."""
     previous_state_name = callback.data.split(":")[1]
     question_data = QUESTIONS_MAP.get(previous_state_name)
     
@@ -195,7 +255,10 @@ async def navigate_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(new_state)
     await callback.answer()
 
+# --- РЕГИСТРАЦИЯ ХЭНДЛЕРОВ И ЗАПУСК БОТА ---
+
 def register_handlers(dp: Dispatcher):
+    """Регистрирует все хэндлеры сообщений."""
     dp.message.register(command_start, F.text.startswith("/start"))
     dp.message.register(process_name, OnboardingState.waiting_for_name)
     dp.message.register(process_age, OnboardingState.waiting_for_age)
@@ -216,6 +279,7 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(process_dietary_restrictions, OnboardingState.waiting_for_dietary_restrictions)
 
 async def main():
+    """Основная функция для запуска бота."""
     register_handlers(dp)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

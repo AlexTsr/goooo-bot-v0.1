@@ -79,3 +79,23 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
     except Exception as e:
         logging.error(f"An error occurred in save_onboarding_data RPC for user_id {user_id}: {e}")
         return False
+
+def get_full_user_profile(user_id: str) -> Optional[dict]:
+    """
+    Собирает полную информацию о пользователе из таблиц user_profile и training_preferences.
+    """
+    try:
+        # Вызываем хранимую процедуру, которая объединяет данные
+        # Это эффективнее, чем делать несколько запросов
+        response = supabase.rpc('get_user_complete_profile', {'p_user_id': user_id}).execute()
+        
+        if response.data:
+            logging.info(f"Successfully fetched full profile for user_id: {user_id}")
+            return response.data[0]
+        else:
+            logging.warning(f"No full profile found for user_id: {user_id}")
+            return None
+
+    except Exception as e:
+        logging.error(f"An error occurred in get_full_user_profile for user_id {user_id}: {e}")
+        return None
