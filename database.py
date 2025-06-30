@@ -27,13 +27,17 @@ async def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
     Добавляет пользователя в таблицу `users`, если его ещё нет.
     """
     try:
-        # 1. Проверяем, существует ли пользователь
-        response = await supabase.table('users').select('id, status').eq('telegram_id', telegram_id).single().execute()
+        # --- ИСПРАВЛЕННЫЙ ЗАПРОС ---
+        # 1. Проверяем, существует ли пользователь.
+        # Убираем .single(), так как 0 строк - это ожидаемый результат, а не ошибка.
+        # .limit(1) - хорошая практика, чтобы БД не искала дальше после первого совпадения.
+        response = await supabase.table('users').select('id, status').eq('telegram_id', telegram_id).limit(1).execute()
         
-        # single() вернет данные, если запись найдена, или None.
+        # response.data теперь ВСЕГДА будет списком. Если он не пустой, пользователь найден.
         if response.data:
-            logging.info(f"User {telegram_id} already exists with status: {response.data.get('status')}")
-            return response.data
+            user_data = response.data[0]
+            logging.info(f"User {telegram_id} already exists with status: {user_data.get('status')}")
+            return user_data
 
         # 2. Если пользователя нет — добавляем его
         logging.info(f"User {telegram_id} not found. Creating new user.")
@@ -45,8 +49,7 @@ async def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
         
         insert_response = await supabase.table('users').insert(insert_data).execute()
 
-        # --- ИСПРАВЛЕННЫЙ БЛОК ПРОВЕРКИ ---
-        # Сначала проверяем, есть ли в ответе ошибка
+        # Проверяем, есть ли в ответе ошибка
         if hasattr(insert_response, 'error') and insert_response.error:
             logging.error(f"Failed to insert user {telegram_id}. DB Error: {insert_response.error.message}")
             return None
@@ -56,10 +59,8 @@ async def insert_user(telegram_id: int, tg_name: str) -> Optional[dict]:
             logging.info(f"User {telegram_id} created successfully.")
             return insert_response.data[0]
         else:
-            # На случай, если нет ни ошибки, ни данных
             logging.warning(f"Insert operation for user {telegram_id} returned no data and no error.")
             return None
-        # --- КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ---
 
     except Exception as e:
         logging.error(f"An exception occurred in insert_user for telegram_id {telegram_id}: {e}")
