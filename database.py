@@ -2,31 +2,24 @@ import logging
 from typing import Optional
 
 # --- ШАГ 1: Правильный импорт ---
-# create_client импортируется из корневого пакета.
+# Импортируем только create_client. AsyncClient убран.
 from supabase import create_client 
-# А AsyncClient (для подсказок типов) - из подмодуля supabase.client.
-from supabase.client import AsyncClient 
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- ШАГ 2: Правильное создание клиента ---
-# Функция create_client является СИНХРОННОЙ. Она возвращает объект клиента,
-# методы которого уже можно вызывать асинхронно через await.
-# Поэтому мы можем создать клиент один раз на уровне модуля.
-
 # Проверяем, что переменные окружения загружены правильно.
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     logging.error("CRITICAL: SUPABASE_URL or SUPABASE_SERVICE_KEY are not set in environment variables!")
-    # Если ключей нет, дальнейшая работа невозможна.
     raise ValueError("Supabase URL and Service Key must be set.")
 else:
     logging.info(f"Supabase URL: {SUPABASE_URL}")
     logging.info(f"Supabase Service Key is present. Starts with: '{SUPABASE_SERVICE_KEY[:5]}...'")
 
-# Создаем клиент, используя service_role ключ
-supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+# Создаем клиент, используя service_role ключ. Аннотация типа :AsyncClient убрана.
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # --- Функции для работы с БД ---
 
