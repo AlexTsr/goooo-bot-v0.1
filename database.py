@@ -45,7 +45,7 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
     try:
         logging.info(f"Calling RPC for onboarding data for user_id: {user_id}")
         
-        # 1. Готовим данные для profile в формате JSON
+        # 1. Готовим данные для profile
         profile_data = {
             "name": data.get("name"), "age": data.get("age"), "height_cm": data.get("height"),
             "initial_weight_kg": data.get("weight"), "goal": data.get("goal"),
@@ -54,19 +54,19 @@ def save_onboarding_data(user_id: str, data: Dict[str, Any]) -> bool:
             "recurring_injuries": data.get("recurring_injuries"), "equipment": data.get("equipment"),
             "infrastructure": data.get("infrastructure"), "dietary_restrictions": data.get("dietary_restrictions"),
             "personal_bests": {"records": data.get("personal_bests")},
-            "weekly_volume_km": data.get("weekly_volume_km"), # <-- Новое поле
-            "additional_info": data.get("additional_info")   # <-- Новое поле
+            "weekly_volume_km": data.get("weekly_volume_km"),
+            "additional_info": data.get("additional_info")
         }
         
-        # 2. Готовим данные для preferences в формате JSON
+        # 2. Готовим данные для preferences
         preferences_data = {
             "training_days_per_week": data.get("training_days_per_week"),
             "preferred_days": data.get("preferred_days"),
-            "trainings_per_day": data.get("trainings_per_day"), # <-- ИСПРАВЛЕНО: Добавлена запятая
+            "trainings_per_day": data.get("trainings_per_day"),
             "long_run_day": data.get("long_run_day")
         }
 
-        # 3. Вызываем функцию 'upsert_user_onboarding_data' в БД через RPC (Remote Procedure Call)
+        # 3. Вызываем функцию
         supabase.rpc('upsert_user_onboarding_data', {
             'p_user_id': user_id,
             'p_profile_data': profile_data,
@@ -85,7 +85,6 @@ def get_full_user_profile(user_id: str) -> Optional[dict]:
     Собирает полную информацию о пользователе из таблиц user_profile и training_preferences.
     """
     try:
-        # Вызываем хранимую процедуру, которая объединяет данные
         response = supabase.rpc('get_user_complete_profile', {'p_user_id': user_id}).execute()
         
         if response.data:
@@ -104,7 +103,6 @@ def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> 
     Сохраняет сгенерированный план тренировок и питания в базу данных.
     """
     try:
-        # 1. Сохраняем план тренировок
         training_plan = plan_data.get("training_plan")
         if training_plan:
             supabase.table('training_plans').upsert({
@@ -114,11 +112,9 @@ def save_generated_plan(user_id: str, week_start_date: str, plan_data: dict) -> 
             }).execute()
             logging.info(f"Saved training plan for user {user_id}")
 
-        # 2. Сохраняем план питания
         meal_plan = plan_data.get("meal_plan")
         shopping_list = plan_data.get("shopping_list")
         if meal_plan:
-            # Преобразуем список словарей в строку для сохранения
             shopping_list_str = ""
             if isinstance(shopping_list, list):
                 for category in shopping_list:

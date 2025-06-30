@@ -214,7 +214,7 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
         for item in category.get('items', []):
             output += f"- {item}\n"
     
-    output += "\n✅ **Общие рекомендации**\n"
+    output += "\n### ✅ **Общие рекомендации**\n"
     output += plan_data.get("general_recommendations", "Нет.")
 
     return output.strip()
