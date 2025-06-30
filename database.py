@@ -2,8 +2,10 @@ import logging
 from typing import Optional
 
 # --- ШАГ 1: Правильный импорт ---
-# Импортируем только create_client и AsyncClient из корневого пакета supabase
-from supabase import create_client, AsyncClient
+# create_client импортируется из корневого пакета.
+from supabase import create_client 
+# А AsyncClient (для подсказок типов) - из подмодуля supabase.client.
+from supabase.client import AsyncClient 
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 # Настраиваем логирование
