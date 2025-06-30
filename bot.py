@@ -2,7 +2,7 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -42,6 +42,9 @@ class OnboardingState(StatesGroup):
 
 class EditingState(StatesGroup):
     waiting_for_changes = State()
+
+# Router
+router = Router()
 
 # Keyboards
 def get_back_keyboard(previous_state: str) -> InlineKeyboardMarkup:
@@ -147,8 +150,9 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
 
 # Handlers
 dp = Dispatcher(storage=MemoryStorage())
+dp.include_router(router)
 
-@dp.message(F.text.startswith("/start"))
+@router.message(F.text == "/start")
 async def command_start(message: Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
@@ -165,7 +169,7 @@ async def command_start(message: Message, state: FSMContext):
         await message.answer("Привет! Я твой тренер по бегу. Как тебя зовут?")
         await state.set_state(OnboardingState.waiting_for_name)
 
-@dp.message(OnboardingState.waiting_for_name)
+@router.message(OnboardingState.waiting_for_name)
 async def process_name(message: Message, state: FSMContext):
     name = message.text.strip()
     if not name or len(name) > 255:
@@ -175,7 +179,7 @@ async def process_name(message: Message, state: FSMContext):
     await message.answer("Сколько тебе лет?", reply_markup=get_back_keyboard("waiting_for_name"))
     await state.set_state(OnboardingState.waiting_for_age)
 
-@dp.message(OnboardingState.waiting_for_age)
+@router.message(OnboardingState.waiting_for_age)
 async def process_age(message: Message, state: FSMContext):
     try:
         age = int(message.text)
@@ -188,7 +192,7 @@ async def process_age(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_height)
+@router.message(OnboardingState.waiting_for_height)
 async def process_height(message: Message, state: FSMContext):
     try:
         height = int(message.text)
@@ -201,7 +205,7 @@ async def process_height(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_weight)
+@router.message(OnboardingState.waiting_for_weight)
 async def process_weight(message: Message, state: FSMContext):
     try:
         weight = float(message.text)
@@ -214,37 +218,37 @@ async def process_weight(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_goal)
+@router.message(OnboardingState.waiting_for_goal)
 async def process_goal(message: Message, state: FSMContext):
     await state.update_data(goal=message.text.strip())
     await message.answer("Что мотивирует в беге?", reply_markup=get_back_keyboard("waiting_for_weight"))
     await state.set_state(OnboardingState.waiting_for_motivation)
 
-@dp.message(OnboardingState.waiting_for_motivation)
+@router.message(OnboardingState.waiting_for_motivation)
 async def process_motivation(message: Message, state: FSMContext):
     await state.update_data(motivation=message.text.strip())
     await message.answer("Что демотивирует?", reply_markup=get_back_keyboard("waiting_for_goal"))
     await state.set_state(OnboardingState.waiting_for_demotivation)
 
-@dp.message(OnboardingState.waiting_for_demotivation)
+@router.message(OnboardingState.waiting_for_demotivation)
 async def process_demotivation(message: Message, state: FSMContext):
     await state.update_data(demotivation=message.text.strip())
     await message.answer("Какой беговой опыт?", reply_markup=get_back_keyboard("waiting_for_motivation"))
     await state.set_state(OnboardingState.waiting_for_experience)
 
-@dp.message(OnboardingState.waiting_for_experience)
+@router.message(OnboardingState.waiting_for_experience)
 async def process_experience(message: Message, state: FSMContext):
     await state.update_data(experience=message.text.strip())
     await message.answer("Личные рекорды (например, 5к - 25:00)?", reply_markup=get_back_keyboard("waiting_for_demotivation"))
     await state.set_state(OnboardingState.waiting_for_personal_bests)
 
-@dp.message(OnboardingState.waiting_for_personal_bests)
+@router.message(OnboardingState.waiting_for_personal_bests)
 async def process_personal_bests(message: Message, state: FSMContext):
     await state.update_data(personal_bests=message.text.strip())
     await message.answer("Сколько дней в неделю тренироваться?", reply_markup=get_back_keyboard("waiting_for_experience"))
     await state.set_state(OnboardingState.waiting_for_days_per_week)
 
-@dp.message(OnboardingState.waiting_for_days_per_week)
+@router.message(OnboardingState.waiting_for_days_per_week)
 async def process_days_per_week(message: Message, state: FSMContext):
     try:
         days = int(message.text)
@@ -257,7 +261,7 @@ async def process_days_per_week(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_preferred_days)
+@router.message(OnboardingState.waiting_for_preferred_days)
 async def process_preferred_days(message: Message, state: FSMContext):
     days = [d.strip().lower() for d in message.text.split(',')]
     valid_days = {'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'}
@@ -268,7 +272,7 @@ async def process_preferred_days(message: Message, state: FSMContext):
     await message.answer("Сколько тренировок в день?", reply_markup=get_back_keyboard("waiting_for_days_per_week"))
     await state.set_state(OnboardingState.waiting_for_trainings_per_day)
 
-@dp.message(OnboardingState.waiting_for_trainings_per_day)
+@router.message(OnboardingState.waiting_for_trainings_per_day)
 async def process_trainings_per_day(message: Message, state: FSMContext):
     try:
         trainings = int(message.text)
@@ -281,7 +285,7 @@ async def process_trainings_per_day(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_long_run_day)
+@router.message(OnboardingState.waiting_for_long_run_day)
 async def process_long_run_day(message: Message, state: FSMContext):
     day = message.text.strip().lower()
     valid_days = {'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'}
@@ -292,37 +296,37 @@ async def process_long_run_day(message: Message, state: FSMContext):
     await message.answer("Текущие травмы?", reply_markup=get_back_keyboard("waiting_for_trainings_per_day"))
     await state.set_state(OnboardingState.waiting_for_current_injuries)
 
-@dp.message(OnboardingState.waiting_for_current_injuries)
+@router.message(OnboardingState.waiting_for_current_injuries)
 async def process_current_injuries(message: Message, state: FSMContext):
     await state.update_data(current_injuries=message.text.strip())
     await message.answer("Повторяющиеся травмы?", reply_markup=get_back_keyboard("waiting_for_long_run_day"))
     await state.set_state(OnboardingState.waiting_for_recurring_injuries)
 
-@dp.message(OnboardingState.waiting_for_recurring_injuries)
+@router.message(OnboardingState.waiting_for_recurring_injuries)
 async def process_recurring_injuries(message: Message, state: FSMContext):
     await state.update_data(recurring_injuries=message.text.strip())
     await message.answer("Какой инвентарь есть?", reply_markup=get_back_keyboard("waiting_for_current_injuries"))
     await state.set_state(OnboardingState.waiting_for_equipment)
 
-@dp.message(OnboardingState.waiting_for_equipment)
+@router.message(OnboardingState.waiting_for_equipment)
 async def process_equipment(message: Message, state: FSMContext):
     await state.update_data(equipment=message.text.strip())
     await message.answer("Инфраструктура (стадион, зал)?", reply_markup=get_back_keyboard("waiting_for_recurring_injuries"))
     await state.set_state(OnboardingState.waiting_for_infrastructure)
 
-@dp.message(OnboardingState.waiting_for_infrastructure)
+@router.message(OnboardingState.waiting_for_infrastructure)
 async def process_infrastructure(message: Message, state: FSMContext):
     await state.update_data(infrastructure=message.text.strip())
     await message.answer("Пищевые ограничения?", reply_markup=get_back_keyboard("waiting_for_equipment"))
     await state.set_state(OnboardingState.waiting_for_dietary_restrictions)
 
-@dp.message(OnboardingState.waiting_for_dietary_restrictions)
+@router.message(OnboardingState.waiting_for_dietary_restrictions)
 async def process_dietary_restrictions(message: Message, state: FSMContext):
     await state.update_data(dietary_restrictions=message.text.strip())
     await message.answer("Недельный объем (км)?", reply_markup=get_back_keyboard("waiting_for_infrastructure"))
     await state.set_state(OnboardingState.waiting_for_weekly_volume)
 
-@dp.message(OnboardingState.waiting_for_weekly_volume)
+@router.message(OnboardingState.waiting_for_weekly_volume)
 async def process_weekly_volume(message: Message, state: FSMContext):
     try:
         volume = int(message.text)
@@ -335,7 +339,7 @@ async def process_weekly_volume(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите число.")
 
-@dp.message(OnboardingState.waiting_for_additional_info)
+@router.message(OnboardingState.waiting_for_additional_info)
 async def process_additional_info(message: Message, state: FSMContext):
     await state.update_data(additional_info=message.text.strip())
     user_data = await state.get_data()
@@ -362,34 +366,34 @@ async def process_additional_info(message: Message, state: FSMContext):
             await message.answer("Ошибка сохранения профиля.")
     await state.set_state(None)
 
-@dp.callback_query(F.data == "edit_profile")
+@router.callback_query(F.data == "edit_profile")
 async def restart_onboarding(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Обновим профиль. Как тебя зовут?")
     await state.set_state(OnboardingState.waiting_for_name)
     await callback.answer()
 
-@dp.callback_query(F.data == "cancel_action")
+@router.callback_query(F.data == "cancel_action")
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Отмена. Используй /start.")
     await state.clear()
     await callback.answer()
 
-@dp.callback_query(F.data == "plan_confirm")
+@router.callback_query(F.data == "plan_confirm")
 async def confirm_plan(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Отлично! Удачной недели!")
     await state.clear()
     await callback.answer()
 
-@dp.callback_query(F.data == "plan_edit")
+@router.callback_query(F.data == "plan_edit")
 async def edit_plan_request(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Что изменить?")
     await state.set_state(EditingState.waiting_for_changes)
     await callback.answer()
 
-@dp.message(EditingState.waiting_for_changes)
+@router.message(EditingState.waiting_for_changes)
 async def process_plan_changes(message: Message, state: FSMContext):
     changes = message.text.strip()
     user_data = await state.get_data()
