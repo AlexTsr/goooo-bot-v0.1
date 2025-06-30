@@ -182,7 +182,7 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
         return f"Произошла ошибка: {plan_data['error']}"
 
     output = f"_{plan_data.get('intro_summary', 'Вот твой план:')}_\n\n"
-    output += "🏃‍♂️ **План тренировок**\n\n"
+    output += "### 🏃‍♂️ **План тренировок**\n\n"
     for day in plan_data.get("training_plan", []):
         output += f"**{day.get('day_of_week')} ({day.get('date')})**\n"
         mw = day.get('morning_workout')
@@ -192,32 +192,34 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
         if ew and ew.get('type') and ew.get('type').lower() != 'отдых':
             output += f"- *Вечер:* {ew.get('type')} - {ew.get('details')}\n"
     
-    output += "\n💪 **Детали силовых и СБУ**\n\n"
+    output += "\n### 💪 **Детали силовых и СБУ**\n\n"
     for block in plan_data.get("workout_details", []):
         output += f"**{block.get('block_name')}** ({block.get('reps_and_sets')})\n"
         for ex in block.get("exercises", []):
             output += f"- {ex.get('name')}: {ex.get('details')}\n"
         output += "\n"
 
-    output += "🍽️ **План питания**\n\n"
+    output += "### 🍽️ **План питания**\n\n"
     for day in plan_data.get("meal_plan", []):
         output += f"**{day.get('day_of_week')} (~{day.get('total_calories')} ккал)**\n"
         for meal in day.get("meals", []):
             output += f"- *{meal.get('meal_type')}:* {meal.get('description')}\n"
     
-    output += "\n🛒 **Список покупок**\n\n"
+    output += "\n### 🛒 **Список покупок**\n\n"
     for category in plan_data.get("shopping_list", []):
         output += f"**{category.get('category')}**\n"
         for item in category.get('items', []):
             output += f"- {item}\n"
     
-    output += "\n✅ **Общие рекомендации**\n"
+    output += "\n### ✅ **Общие рекомендации**\n"
     output += plan_data.get("general_recommendations", "Нет.")
 
     return output.strip()
 
 # --- Хэндлеры ---
+@dp.message(F.text.startswith("/start"))
 async def command_start(message: Message, state: FSMContext):
+    """Обрабатывает команду /start, проверяя, новый ли пользователь."""
     await state.clear() 
     user_id = message.from_user.id
     user = await asyncio.to_thread(get_user_by_telegram_id, user_id)
@@ -234,8 +236,10 @@ async def command_start(message: Message, state: FSMContext):
         await message.answer("Давай знакомиться. Я уже представился, а как тебя зовут?")
         await state.set_state(OnboardingState.waiting_for_name)
 
-# ... (все остальные хэндлеры process_... до process_additional_info) ...
+# ... (все хэндлеры process_... до process_additional_info) ...
+@dp.message(OnboardingState.waiting_for_additional_info)
 async def process_additional_info(message: Message, state: FSMContext):
+    """Последний шаг онбординга. Сохраняем данные и вызываем LLM."""
     await state.update_data(additional_info=message.text)
     user_data = await state.get_data()
     telegram_id = message.from_user.id
@@ -303,6 +307,7 @@ async def edit_plan_request(callback: CallbackQuery, state: FSMContext):
     await state.set_state(EditingState.waiting_for_changes)
     await callback.answer()
 
+@dp.message(EditingState.waiting_for_changes)
 async def process_plan_changes(message: Message, state: FSMContext):
     """Обрабатывает запрос на изменение, отправляет новый промпт в LLM."""
     user_changes = message.text
@@ -338,23 +343,13 @@ async def set_main_menu(bot: Bot):
     await bot.set_my_commands(main_menu_commands)
 
 # --- РЕГИСТРАЦИЯ ХЭНДЛЕРОВ И ЗАПУСК БОТА ---
-def register_handlers(dp: Dispatcher):
-    dp.message.register(command_start, F.text.startswith("/start"))
-    # ... (все хэндлеры process_...)
-    dp.message.register(process_additional_info, OnboardingState.waiting_for_additional_info)
-    dp.message.register(process_plan_changes, EditingState.waiting_for_changes)
-    # Регистрируем хэндлеры для кнопок
-    dp.callback_query.register(navigate_back, F.data.startswith("back_to:"))
-    dp.callback_query.register(restart_onboarding, F.data == "edit_profile")
-    dp.callback_query.register(cancel_action, F.data == "cancel_action")
-    dp.callback_query.register(confirm_plan, F.data == "plan_confirm")
-    dp.callback_query.register(edit_plan_request, F.data == "plan_edit")
+# В aiogram 3.x больше не нужна отдельная функция register_handlers,
+# так как декораторы @dp.message и @dp.callback_query уже делают всю работу.
 
 async def main():
     """Основная функция для запуска бота с надежным поллингом."""
     logging.info("--- Запуск бота ---")
     
-    register_handlers(dp)
     await set_main_menu(bot)
     
     try:
