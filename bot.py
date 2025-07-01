@@ -48,10 +48,17 @@ class EditingState(StatesGroup):
 
 # --- Keyboards ---
 def get_back_keyboard(previous_state: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Вернуться к предыдущему вопросу", callback_data=f"back_to:{previous_state}")]])
+    """Создает клавиатуру с кнопкой 'Назад'."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Вернуться к предыдущему вопросу", callback_data=f"back_to:{previous_state}")]
+    ])
 
 def get_plan_feedback_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Все устраивает", callback_data="plan_confirm")],[InlineKeyboardButton(text="✍️ Предложить изменения", callback_data="plan_edit")]])
+    """Клавиатура для обратной связи по плану."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Все устраивает", callback_data="plan_confirm")],
+        [InlineKeyboardButton(text="✍️ Предложить изменения", callback_data="plan_edit")]
+    ])
 
 # --- Инициализация бота и диспетчера ---
 storage = MemoryStorage()
@@ -214,7 +221,6 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
 async def command_start(message: Message, state: FSMContext):
     await state.clear() 
     user_id = message.from_user.id
-    # ИСПРАВЛЕНО: Используем asyncio.to_thread для вызова синхронной функции
     user = await asyncio.to_thread(get_user_by_telegram_id, user_id)
 
     if user and user.get('status') == 'active':
@@ -224,7 +230,6 @@ async def command_start(message: Message, state: FSMContext):
                                  [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")]
                              ]))
     else:
-        # ИСПРАВЛЕНО: Используем asyncio.to_thread
         await asyncio.to_thread(insert_user, user_id, message.from_user.full_name)
         await message.answer("Привет! Я твой персональный тренер по бегу. Чтобы составить для тебя идеальный план, мне нужно задать несколько вопросов.")
         await message.answer("Давай знакомиться. Я уже представился, а как тебя зовут?")
@@ -233,22 +238,20 @@ async def command_start(message: Message, state: FSMContext):
 # ... (все остальные хэндлеры process_... до process_additional_info) ...
 @dp.message(OnboardingState.waiting_for_additional_info)
 async def process_additional_info(message: Message, state: FSMContext):
+    """Последний шаг онбординга. Сохраняем данные и вызываем LLM."""
     await state.update_data(additional_info=message.text)
     user_data = await state.get_data()
     telegram_id = message.from_user.id
     await message.answer("Спасибо! Сохраняю твой профиль...")
     
-    # ИСПРАВЛЕНО: Используем asyncio.to_thread
     user = await asyncio.to_thread(get_user_by_telegram_id, telegram_id)
     if user:
         user_db_id = user['id']
-        # ИСПРАВЛЕНО: Используем asyncio.to_thread
         success = await asyncio.to_thread(save_onboarding_data, user_db_id, user_data)
         
         if success:
             await message.answer("Отлично! Профиль сохранен. Генерирую твой первый план. Это может занять до минуты...", parse_mode=None)
             
-            # ИСПРАВЛЕНО: Используем asyncio.to_thread
             full_profile = await asyncio.to_thread(get_full_user_profile, user_db_id)
             if full_profile:
                 prompt = format_prompt_for_detailed_json(full_profile)
@@ -259,9 +262,6 @@ async def process_additional_info(message: Message, state: FSMContext):
                     formatted_plan = format_detailed_plan_for_user(plan_json)
                     await message.answer(formatted_plan, parse_mode=ParseMode.MARKDOWN, reply_markup=get_plan_feedback_keyboard())
                     await state.update_data(last_generated_plan=plan_json)
-                    # ИСПРАВЛЕНО: Используем asyncio.to_thread
-                    today = date.today().isoformat()
-                    await asyncio.to_thread(save_generated_plan, user_db_id, today, plan_json)
                 else:
                     await message.answer(f"Ошибка генерации плана: {plan_json['error']}")
             else:
@@ -276,14 +276,17 @@ async def process_additional_info(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "edit_profile")
 async def restart_onboarding(callback: CallbackQuery, state: FSMContext):
+    """Запускает процесс онбординга заново для существующего пользователя."""
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Хорошо, давай пройдемся по анкете заново, чтобы обновить твой профиль.")
+    
     await callback.message.answer("Как тебя зовут?")
     await state.set_state(OnboardingState.waiting_for_name)
     await callback.answer()
 
 @dp.callback_query(F.data == "cancel_action")
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает нажатие кнопки 'Отмена'."""
     await callback.message.edit_text("Хорошо, ничего не меняем. Если что-то понадобится, просто напиши /start.")
     await state.clear()
     await callback.answer()
@@ -304,6 +307,7 @@ async def edit_plan_request(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(EditingState.waiting_for_changes)
 async def process_plan_changes(message: Message, state: FSMContext):
+    """Обрабатывает запрос на изменение, отправляет новый промпт в LLM."""
     user_changes = message.text
     user_data = await state.get_data()
     last_plan = user_data.get("last_generated_plan")
@@ -331,6 +335,7 @@ async def process_plan_changes(message: Message, state: FSMContext):
 
 # --- Установка команд меню ---
 async def set_main_menu(bot: Bot):
+    """Устанавливает команды в меню бота."""
     main_menu_commands = [
         BotCommand(command="/start", description="Начать знакомство / Обновить профиль")
     ]
