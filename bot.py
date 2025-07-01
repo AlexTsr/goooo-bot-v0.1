@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand, Update
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -475,7 +475,25 @@ dp.shutdown.register(on_shutdown)
 
 # ASGI-приложение для uvicorn
 async def app(scope, receive, send):
-    await dp.compose(scope, receive, send)
+    if scope["type"] == "http" or scope["type"] == "websocket":
+        # Чтение данных из webhook
+        body = b""
+        more_body = True
+        while more_body:
+            message = await receive()
+            body += message.get("body", b"")
+            more_body = message.get("more_body", False)
+
+        # Парсинг обновления из Telegram
+        try:
+            update = Update(**json.loads(body.decode()))
+            # Передача обновления в Dispatcher
+            await dp.feed_webhook_update(bot=bot, update=update)
+        except Exception as e:
+            logging.error(f"Error processing webhook update: {e}")
+    else:
+        await send({"type": "http.response.start", "status": 400, "headers": [[b"content-type", b"text/plain"]]})
+        await send({"type": "http.response.body", "body": b"Unsupported request type"})
 
 async def start_webhook():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
