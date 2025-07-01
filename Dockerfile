@@ -1,14 +1,41 @@
+# --- Этап 1: Сборка зависимостей ---
+# Используем официальный образ Python как базовый. Указываем конкретную версию для предсказуемости.
+FROM python:3.11-slim as builder
+
+# Устанавливаем рабочую директорию внутри контейнера
+WORKDIR /app
+
+# Обновляем pip до последней версии
+RUN pip install --upgrade pip
+
+# Копируем только файл с зависимостями.
+# Это позволяет Docker кешировать этот слой, если requirements.txt не менялся,
+# что значительно ускоряет последующие сборки.
+COPY requirements.txt .
+
+# Устанавливаем зависимости
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
+
+
+# --- Этап 2: Финальный образ ---
+# Используем тот же базовый образ, чтобы обеспечить консистентность
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
+# Устанавливаем рабочую директорию
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+# Копируем "колеса" (скомпилированные зависимости) с этапа сборки
+COPY --from=builder /app/wheels /wheels/
+
+# Копируем наш файл requirements.txt
+COPY --from=builder /app/requirements.txt .
+
+# Устанавливаем зависимости из локальных "колес", что происходит очень быстро и не требует доступа к сети
+RUN pip install --no-cache /wheels/*
+
+# Копируем все остальные файлы нашего приложения (bot.py, config.py и т.д.)
 COPY . .
+
+# Указываем команду, которая будет выполняться при запуске контейнера.
+# Render автоматически подставит переменные окружения из настроек сервиса.
 CMD ["python", "bot.py"]
