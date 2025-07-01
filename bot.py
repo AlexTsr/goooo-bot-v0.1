@@ -377,6 +377,8 @@ async def process_additional_info(message: Message, state: FSMContext):
                     formatted_plan = format_detailed_plan_for_user(plan_json)
                     await message.answer(formatted_plan, parse_mode=ParseMode.MARKDOWN, reply_markup=get_plan_feedback_keyboard())
                     await state.update_data(last_generated_plan=plan_json)
+                    today = date.today().isoformat()
+                    await asyncio.to_thread(save_generated_plan, user_db_id, today, plan_json)
                 else:
                     await message.answer(f"Ошибка генерации плана: {plan_json['error']}")
             else:
@@ -397,21 +399,30 @@ async def navigate_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(new_state)
     await callback.answer()
 
-@dp.callback_query(F.data == "plan_confirm")
+async def restart_onboarding(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("Хорошо, давай пройдемся по анкете заново, чтобы обновить твой профиль.")
+    await callback.message.answer("Как тебя зовут?")
+    await state.set_state(OnboardingState.waiting_for_name)
+    await callback.answer()
+
+async def cancel_action(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Хорошо, ничего не меняем. Если что-то понадобится, просто напиши /start.")
+    await state.clear()
+    await callback.answer()
+
 async def confirm_plan(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Отлично! Хорошей тренировочной недели. Жду твой отчет в воскресенье.")
     await state.clear()
     await callback.answer()
 
-@dp.callback_query(F.data == "plan_edit")
 async def edit_plan_request(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Дай знать, что ты хочешь изменить или уточнить в плане?")
     await state.set_state(EditingState.waiting_for_changes)
     await callback.answer()
 
-@dp.message(EditingState.waiting_for_changes)
 async def process_plan_changes(message: Message, state: FSMContext):
     user_changes = message.text
     user_data = await state.get_data()
@@ -476,7 +487,6 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(process_plan_changes, EditingState.waiting_for_changes)
 
 async def main():
-    """Основная функция для запуска бота с надежным поллингом."""
     logging.info("--- Запуск бота ---")
     
     register_handlers(dp)
