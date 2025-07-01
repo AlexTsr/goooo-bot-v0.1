@@ -1,4 +1,4 @@
 aiogram==3.7.0
 python-dotenv==1.0.1
-supabase-py-async==0.1.1
+supabase[async]==2.4.2
 httpx==0.27.0
