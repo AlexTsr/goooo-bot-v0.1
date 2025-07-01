@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand, Update
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -473,12 +473,38 @@ async def on_shutdown(bot: Bot):
 dp.startup.register(on_startup)
 dp.shutdown.register(on_shutdown)
 
+# ASGI-приложение для uvicorn
+async def app(scope, receive, send, bot):
+    if scope["type"] == "http" or scope["type"] == "websocket":
+        # Чтение данных из webhook
+        body = b""
+        more_body = True
+        while more_body:
+            message = await receive()
+            body += message.get("body", b"")
+            more_body = message.get("more_body", False)
+
+        # Парсинг обновления из Telegram
+        try:
+            update = Update(**json.loads(body.decode()))
+            # Передача обновления в Dispatcher
+            await dp.feed_webhook_update(bot=bot, update=update)
+        except Exception as e:
+            logging.error(f"Error processing webhook update: {e}")
+            await send({"type": "http.response.start", "status": 500, "headers": [[b"content-type", b"text/plain"]]})
+            await send({"type": "http.response.body", "body": b"Internal Server Error"})
+    else:
+        await send({"type": "http.response.start", "status": 400, "headers": [[b"content-type", b"text/plain"]]})
+        await send({"type": "http.response.body", "body": b"Unsupported request type"})
+
 async def start_webhook():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     port = int(os.getenv("PORT", 8443))
     logging.info(f"Starting webhook on port {port} with URL {WEBHOOK_URL}")
-    await dp.start_polling(bot)  # Временный fallback, если webhook не работает
-    await dp.run_polling(bot)
+    await on_startup(bot)
+    config = uvicorn.Config(app=lambda: app(bot=bot), host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
     await on_shutdown(bot)
 
 if __name__ == "__main__":
