@@ -17,8 +17,10 @@ from database import (
 )
 from llm import generate_structured_plan_with_llm
 
+# Включаем логирование
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# --- FSM States ---
 class OnboardingState(StatesGroup):
     waiting_for_name = State()
     waiting_for_age = State()
@@ -44,16 +46,19 @@ class OnboardingState(StatesGroup):
 class EditingState(StatesGroup):
     waiting_for_changes = State()
 
+# --- Keyboards ---
 def get_back_keyboard(previous_state: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Вернуться", callback_data=f"back_to:{previous_state}")]])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Вернуться к предыдущему вопросу", callback_data=f"back_to:{previous_state}")]])
 
 def get_plan_feedback_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Все устраивает", callback_data="plan_confirm")],[InlineKeyboardButton(text="✍️ Предложить изменения", callback_data="plan_edit")]])
 
+# --- Инициализация бота и диспетчера ---
 storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=storage)
 
+# --- Словарь с вопросами для навигации "Назад" ---
 QUESTIONS_MAP = {
     "waiting_for_name": ("Давай знакомиться. Я уже представился, а как тебя зовут?", OnboardingState.waiting_for_name, None),
     "waiting_for_age": ("Сколько тебе лет?", OnboardingState.waiting_for_age, get_back_keyboard("waiting_for_name")),
@@ -77,6 +82,7 @@ QUESTIONS_MAP = {
     "waiting_for_additional_info": ("Если есть что-то, что ещё необходимо учесть в составлении плана, то сообщите это (например, ваш текущий ПАНО, предпочтения по количеству приемов пищи и прочее)", OnboardingState.waiting_for_additional_info, get_back_keyboard("waiting_for_weekly_volume")),
 }
 
+# --- Промпты и Форматирование ---
 def format_prompt_for_detailed_json(profile_data: dict, week_num: int = 1) -> str:
     profile = profile_data.get('profile', {})
     preferences = profile_data.get('preferences', {})
@@ -203,20 +209,70 @@ def format_detailed_plan_for_user(plan_data: dict) -> str:
 
     return output.strip()
 
+# --- Хэндлеры ---
 @dp.message(F.text.startswith("/start"))
 async def command_start(message: Message, state: FSMContext):
     await state.clear() 
     user_id = message.from_user.id
-    user = await get_user_by_telegram_id(user_id)
+    # ИСПРАВЛЕНО: Используем asyncio.to_thread для вызова синхронной функции
+    user = await asyncio.to_thread(get_user_by_telegram_id, user_id)
 
     if user and user.get('status') == 'active':
         await message.answer(f"Привет, {message.from_user.first_name}! Рад снова тебя видеть. Хочешь внести изменения в свой профиль?", 
-                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✍️ Изменить профиль", callback_data="edit_profile")],[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")]]))
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                 [InlineKeyboardButton(text="✍️ Изменить профиль", callback_data="edit_profile")],
+                                 [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")]
+                             ]))
     else:
-        await insert_user(user_id, message.from_user.full_name)
+        # ИСПРАВЛЕНО: Используем asyncio.to_thread
+        await asyncio.to_thread(insert_user, user_id, message.from_user.full_name)
         await message.answer("Привет! Я твой персональный тренер по бегу. Чтобы составить для тебя идеальный план, мне нужно задать несколько вопросов.")
         await message.answer("Давай знакомиться. Я уже представился, а как тебя зовут?")
         await state.set_state(OnboardingState.waiting_for_name)
+
+# ... (все остальные хэндлеры process_... до process_additional_info) ...
+@dp.message(OnboardingState.waiting_for_additional_info)
+async def process_additional_info(message: Message, state: FSMContext):
+    await state.update_data(additional_info=message.text)
+    user_data = await state.get_data()
+    telegram_id = message.from_user.id
+    await message.answer("Спасибо! Сохраняю твой профиль...")
+    
+    # ИСПРАВЛЕНО: Используем asyncio.to_thread
+    user = await asyncio.to_thread(get_user_by_telegram_id, telegram_id)
+    if user:
+        user_db_id = user['id']
+        # ИСПРАВЛЕНО: Используем asyncio.to_thread
+        success = await asyncio.to_thread(save_onboarding_data, user_db_id, user_data)
+        
+        if success:
+            await message.answer("Отлично! Профиль сохранен. Генерирую твой первый план. Это может занять до минуты...", parse_mode=None)
+            
+            # ИСПРАВЛЕНО: Используем asyncio.to_thread
+            full_profile = await asyncio.to_thread(get_full_user_profile, user_db_id)
+            if full_profile:
+                prompt = format_prompt_for_detailed_json(full_profile)
+                
+                plan_json = await generate_structured_plan_with_llm(prompt)
+                
+                if "error" not in plan_json:
+                    formatted_plan = format_detailed_plan_for_user(plan_json)
+                    await message.answer(formatted_plan, parse_mode=ParseMode.MARKDOWN, reply_markup=get_plan_feedback_keyboard())
+                    await state.update_data(last_generated_plan=plan_json)
+                    # ИСПРАВЛЕНО: Используем asyncio.to_thread
+                    today = date.today().isoformat()
+                    await asyncio.to_thread(save_generated_plan, user_db_id, today, plan_json)
+                else:
+                    await message.answer(f"Ошибка генерации плана: {plan_json['error']}")
+            else:
+                await message.answer("Не удалось получить данные твоего профиля для генерации плана.")
+        else:
+            await message.answer("Произошла ошибка при сохранении профиля.")
+    else:
+        await message.answer("Не смог найти твой профиль для сохранения.")
+    await state.set_state(None)
+
+# --- Новые хэндлеры для меню /start и редактирования плана ---
 
 @dp.callback_query(F.data == "edit_profile")
 async def restart_onboarding(callback: CallbackQuery, state: FSMContext):
@@ -230,59 +286,6 @@ async def restart_onboarding(callback: CallbackQuery, state: FSMContext):
 async def cancel_action(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Хорошо, ничего не меняем. Если что-то понадобится, просто напиши /start.")
     await state.clear()
-    await callback.answer()
-
-@dp.message(OnboardingState.waiting_for_name)
-async def process_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Сколько тебе лет?", reply_markup=get_back_keyboard("waiting_for_name"))
-    await state.set_state(OnboardingState.waiting_for_age)
-
-# ... (и так далее для всех обработчиков онбординга)
-
-@dp.message(OnboardingState.waiting_for_additional_info)
-async def process_additional_info(message: Message, state: FSMContext):
-    await state.update_data(additional_info=message.text)
-    user_data = await state.get_data()
-    telegram_id = message.from_user.id
-    await message.answer("Спасибо! Сохраняю твой профиль...")
-    
-    user = await get_user_by_telegram_id(telegram_id)
-    if user:
-        user_db_id = user['id']
-        success = await save_onboarding_data(user_db_id, user_data)
-        
-        if success:
-            await message.answer("Отлично! Профиль сохранен. Генерирую твой первый план. Это может занять до минуты...", parse_mode=None)
-            
-            full_profile = await get_full_user_profile(user_db_id)
-            if full_profile:
-                prompt = format_prompt_for_detailed_json(full_profile)
-                plan_json = await generate_structured_plan_with_llm(prompt)
-                
-                if "error" not in plan_json:
-                    formatted_plan = format_detailed_plan_for_user(plan_json)
-                    await message.answer(formatted_plan, parse_mode=ParseMode.MARKDOWN, reply_markup=get_plan_feedback_keyboard())
-                    await state.update_data(last_generated_plan=plan_json)
-                else:
-                    await message.answer(f"Ошибка генерации плана: {plan_json['error']}")
-            else:
-                await message.answer("Не удалось получить данные твоего профиля для генерации плана.")
-        else:
-            await message.answer("Произошла ошибка при сохранении профиля.")
-    else:
-        await message.answer("Не смог найти твой профиль для сохранения.")
-    await state.set_state(None)
-
-@dp.callback_query(F.data.startswith("back_to:"))
-async def navigate_back(callback: CallbackQuery, state: FSMContext):
-    previous_state_name = callback.data.split(":")[1]
-    question_data = QUESTIONS_MAP.get(previous_state_name)
-    
-    if question_data:
-        question_text, new_state, markup = question_data
-        await callback.message.edit_text(question_text, reply_markup=markup)
-        await state.set_state(new_state)
     await callback.answer()
 
 @dp.callback_query(F.data == "plan_confirm")
@@ -326,11 +329,19 @@ async def process_plan_changes(message: Message, state: FSMContext):
     
     await state.set_state(None)
 
+# --- Установка команд меню ---
 async def set_main_menu(bot: Bot):
-    main_menu_commands = [BotCommand(command="/start", description="Начать знакомство / Обновить профиль")]
+    main_menu_commands = [
+        BotCommand(command="/start", description="Начать знакомство / Обновить профиль")
+    ]
     await bot.set_my_commands(main_menu_commands)
 
+# --- РЕГИСТРАЦИЯ ХЭНДЛЕРОВ И ЗАПУСК БОТА ---
+# В aiogram 3.x больше не нужна отдельная функция register_handlers,
+# так как декораторы @dp.message и @dp.callback_query уже делают всю работу.
+
 async def main():
+    """Основная функция для запуска бота с надежным поллингом."""
     logging.info("--- Запуск бота ---")
     
     await set_main_menu(bot)
