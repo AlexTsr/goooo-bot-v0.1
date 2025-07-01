@@ -473,12 +473,16 @@ async def on_shutdown(bot: Bot):
 dp.startup.register(on_startup)
 dp.shutdown.register(on_shutdown)
 
+# ASGI-приложение для uvicorn
+async def app(scope, receive, send):
+    await dp.compose(scope, receive, send)
+
 async def start_webhook():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     port = int(os.getenv("PORT", 8443))
     logging.info(f"Starting webhook on port {port} with URL {WEBHOOK_URL}")
     await on_startup(bot)
-    config = uvicorn.Config(app=dp, host="0.0.0.0", port=port, log_level="info")
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
     await on_shutdown(bot)
